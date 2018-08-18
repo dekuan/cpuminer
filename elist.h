@@ -230,7 +230,7 @@ static inline void list_splice_init(struct list_head *list,
  * @member:	the name of the list_struct within the struct.
  * @type:	the type of the struct.
  */
-#define list_for_each_entry_safe(pos, n, head, member, type)		\
+#define list_for_each_entry_safe( pos, n, head, member, type )		\
 	for (pos = list_entry((head)->next, type, member),	\
 		n = list_entry(pos->member.next, type, member);	\
 	     &pos->member != (head); 					\

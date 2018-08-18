@@ -98,10 +98,10 @@ void applog(int prio, const char *fmt, ...)
 
 		time(&now);
 
-		pthread_mutex_lock(&applog_lock);
+		pthread_mutex_lock( &g_hThMutexAppLogLock );
 		tm_p = localtime(&now);
 		memcpy(&tm, tm_p, sizeof(tm));
-		pthread_mutex_unlock(&applog_lock);
+		pthread_mutex_unlock( &g_hThMutexAppLogLock );
 
 		len = 40 + strlen(fmt) + 2;
 		f = alloca(len);
@@ -113,10 +113,10 @@ void applog(int prio, const char *fmt, ...)
 			tm.tm_min,
 			tm.tm_sec,
 			fmt);
-		pthread_mutex_lock(&applog_lock);
+		pthread_mutex_lock( &g_hThMutexAppLogLock );
 		vfprintf(stderr, f, ap);	/* atomic write to stderr */
 		fflush(stderr);
-		pthread_mutex_unlock(&applog_lock);
+		pthread_mutex_unlock( &g_hThMutexAppLogLock );
 	}
 	va_end(ap);
 }
@@ -437,87 +437,101 @@ json_t *json_rpc_call(CURL *curl, const char *url,
 	/* If X-Stratum was found, activate Stratum */
 	if (want_stratum && hi.stratum_url &&
 	    !strncasecmp(hi.stratum_url, "stratum+tcp://", 14)) {
-		have_stratum = true;
+		g_bHaveStratum = true;
 		tq_push(thr_info[stratum_thr_id].q, hi.stratum_url);
 		hi.stratum_url = NULL;
 	}
 
 	/* If X-Long-Polling was found, activate long polling */
-	if (!have_longpoll && want_longpoll && hi.lp_path && !have_gbt &&
-	    allow_getwork && !have_stratum) {
-		have_longpoll = true;
-		tq_push(thr_info[longpoll_thr_id].q, hi.lp_path);
+	if ( ! have_longpoll && want_longpoll && hi.lp_path && ! g_bHaveGbt &&
+		g_bAllowGetWork && ! g_bHaveStratum )
+	{
+		have_longpoll	= true;
+		tq_push( thr_info[ longpoll_thr_id ].q, hi.lp_path );
 		hi.lp_path = NULL;
 	}
 
-	if (!all_data.buf) {
-		applog(LOG_ERR, "Empty data received in json_rpc_call.");
+	if ( ! all_data.buf )
+	{
+		applog( LOG_ERR, "Empty data received in json_rpc_call." );
 		goto err_out;
 	}
 
-	json_buf = hack_json_numbers(all_data.buf);
-	errno = 0; /* needed for Jansson < 2.1 */
-	val = JSON_LOADS(json_buf, &err);
-	free(json_buf);
-	if (!val) {
-		applog(LOG_ERR, "JSON decode failed(%d): %s", err.line, err.text);
+	//	...
+	json_buf	= hack_json_numbers(all_data.buf);
+	errno		= 0;	/* needed for Jansson < 2.1 */
+	val		= JSON_LOADS(json_buf, &err);
+	free( json_buf );
+
+	if ( ! val )
+	{
+		applog( LOG_ERR, "JSON decode failed(%d): %s", err.line, err.text );
 		goto err_out;
 	}
 
-	if (opt_protocol) {
-		char *s = json_dumps(val, JSON_INDENT(3));
-		applog(LOG_DEBUG, "JSON protocol response:\n%s", s);
-		free(s);
+	if ( opt_protocol )
+	{
+		char * s = json_dumps( val, JSON_INDENT( 3 ) );
+		applog( LOG_DEBUG, "JSON protocol response:\n%s", s );
+		free( s );
 	}
 
 	/* JSON-RPC valid response returns a 'result' and a null 'error'. */
-	res_val = json_object_get(val, "result");
-	err_val = json_object_get(val, "error");
+	res_val	= json_object_get( val, "result" );
+	err_val	= json_object_get( val, "error" );
 
-	if (!res_val || (err_val && !json_is_null(err_val))) {
-		char *s;
+	if ( ! res_val || ( err_val && ! json_is_null( err_val ) ) )
+	{
+		char * s;
 
-		if (err_val)
-			s = json_dumps(err_val, JSON_INDENT(3));
+		if ( err_val )
+		{
+			s = json_dumps( err_val, JSON_INDENT( 3 ) );
+		}
+		}
 		else
-			s = strdup("(unknown reason)");
+		{
+			s = strdup( "(unknown reason)" );
+		}
 
-		applog(LOG_ERR, "JSON-RPC call failed: %s", s);
-
-		free(s);
+		applog( LOG_ERR, "JSON-RPC call failed: %s", s );
+		free( s );
 
 		goto err_out;
 	}
 
-	if (hi.reason)
-		json_object_set_new(val, "reject-reason", json_string(hi.reason));
+	if ( hi.reason )
+	{
+		json_object_set_new( val, "reject-reason", json_string( hi.reason ) );
+	}
 
-	databuf_free(&all_data);
-	curl_slist_free_all(headers);
-	curl_easy_reset(curl);
+	databuf_free( &all_data );
+	curl_slist_free_all( headers );
+	curl_easy_reset( curl );
 	return val;
 
 err_out:
-	free(hi.lp_path);
-	free(hi.reason);
-	free(hi.stratum_url);
-	databuf_free(&all_data);
-	curl_slist_free_all(headers);
-	curl_easy_reset(curl);
+	free( hi.lp_path );
+	free( hi.reason );
+	free( hi.stratum_url );
+	databuf_free( &all_data );
+	curl_slist_free_all( headers );
+	curl_easy_reset( curl );
 	return NULL;
 }
 
-void memrev(unsigned char *p, size_t len)
+void memrev( unsigned char * p, size_t len )
 {
 	unsigned char c, *q;
-	for (q = p + len - 1; p < q; p++, q--) {
+	for ( q = p + len - 1; p < q; p++, q-- )
+	{
 		c = *p;
 		*p = *q;
 		*q = c;
 	}
 }
 
-void bin2hex(char *s, const unsigned char *p, size_t len)
+void bin2hex( char * s, const unsigned char * p, size_t len )
 {
 	int i;
 	for (i = 0; i < len; i++)
@@ -1428,115 +1442,148 @@ out:
 	return ret;
 }
 
-struct thread_q *tq_new(void)
+struct thread_q * tq_new( void )
 {
-	struct thread_q *tq;
+	struct thread_q * tq;
 
-	tq = calloc(1, sizeof(*tq));
-	if (!tq)
+	tq = calloc( 1, sizeof(*tq) );
+	if ( ! tq )
+	{
 		return NULL;
+	}
 
-	INIT_LIST_HEAD(&tq->q);
-	pthread_mutex_init(&tq->mutex, NULL);
-	pthread_cond_init(&tq->cond, NULL);
+	//	...
+	INIT_LIST_HEAD( &tq->q );
+	pthread_mutex_init( &tq->mutex, NULL );
+	pthread_cond_init( &tq->cond, NULL );
 
 	return tq;
 }
 
-void tq_free(struct thread_q *tq)
+void tq_free( struct thread_q * tq )
 {
-	struct tq_ent *ent, *iter;
+	struct tq_ent * ent, * iter;
 
-	if (!tq)
+	if ( ! tq )
+	{
 		return;
-
-	list_for_each_entry_safe(ent, iter, &tq->q, q_node, struct tq_ent) {
-		list_del(&ent->q_node);
-		free(ent);
 	}
 
-	pthread_cond_destroy(&tq->cond);
-	pthread_mutex_destroy(&tq->mutex);
+	list_for_each_entry_safe( ent, iter, &tq->q, q_node, struct tq_ent ) {
+		list_del( &ent->q_node );
+		free( ent );
+	}
 
-	memset(tq, 0, sizeof(*tq));	/* poison */
-	free(tq);
+	pthread_cond_destroy( &tq->cond );
+	pthread_mutex_destroy( &tq->mutex );
+
+	memset( tq, 0, sizeof(*tq) );	/* poison */
+	free( tq );
 }
 
-static void tq_freezethaw(struct thread_q *tq, bool frozen)
+static void tq_freezethaw( struct thread_q * tq, bool frozen )
 {
-	pthread_mutex_lock(&tq->mutex);
+	pthread_mutex_lock( &tq->mutex );
 
 	tq->frozen = frozen;
 
-	pthread_cond_signal(&tq->cond);
-	pthread_mutex_unlock(&tq->mutex);
+	pthread_cond_signal( &tq->cond );
+	pthread_mutex_unlock( &tq->mutex );
 }
 
-void tq_freeze(struct thread_q *tq)
+void tq_freeze( struct thread_q * tq )
 {
-	tq_freezethaw(tq, true);
+	tq_freezethaw( tq, true );
 }
 
-void tq_thaw(struct thread_q *tq)
+void tq_thaw( struct thread_q * tq )
 {
-	tq_freezethaw(tq, false);
+	tq_freezethaw( tq, false );
 }
 
-bool tq_push(struct thread_q *tq, void *data)
+/**
+ *	push a task to thread queue
+ *	@param pstThreadQueue
+ *	@param pvData
+ *	@return
+ */
+bool tq_push( struct thread_q * pstThreadQueue, void * pvData )
 {
-	struct tq_ent *ent;
-	bool rc = true;
+	struct tq_ent * pstTqEnt;
+	bool bRc = true;
 
-	ent = calloc(1, sizeof(*ent));
-	if (!ent)
+	//	...
+	pstTqEnt = calloc( 1, sizeof(*pstTqEnt) );
+	if ( ! pstTqEnt )
+	{
 		return false;
-
-	ent->data = data;
-	INIT_LIST_HEAD(&ent->q_node);
-
-	pthread_mutex_lock(&tq->mutex);
-
-	if (!tq->frozen) {
-		list_add_tail(&ent->q_node, &tq->q);
-	} else {
-		free(ent);
-		rc = false;
 	}
 
-	pthread_cond_signal(&tq->cond);
-	pthread_mutex_unlock(&tq->mutex);
+	//	...
+	pstTqEnt->data	= pvData;
+	INIT_LIST_HEAD( &pstTqEnt->q_node );
 
-	return rc;
+	pthread_mutex_lock( &pstThreadQueue->mutex );
+	{
+		if ( ! pstThreadQueue->frozen )
+		{
+			list_add_tail( &pstTqEnt->q_node, &pstThreadQueue->q );
+		}
+		else
+		{
+			free( pstTqEnt );
+			bRc = false;
+		}
+
+		//	...
+		pthread_cond_signal( &pstThreadQueue->cond );
+	}
+	pthread_mutex_unlock( &pstThreadQueue->mutex );
+
+	//	...
+	return bRc;
 }
 
-void *tq_pop(struct thread_q *tq, const struct timespec *abstime)
+void * tq_pop( struct thread_q * pstThreadQueue, const struct timespec * pstAbsTime )
 {
-	struct tq_ent *ent;
-	void *rval = NULL;
-	int rc;
+	struct tq_ent * pstTqEnt;
+	void * rval = NULL;
+	int nRc;
 
-	pthread_mutex_lock(&tq->mutex);
+	//	lock
+	pthread_mutex_lock( &pstThreadQueue->mutex );
 
-	if (!list_empty(&tq->q))
+	if ( ! list_empty( &pstThreadQueue->q ) )
+	{
 		goto pop;
+	}
 
-	if (abstime)
-		rc = pthread_cond_timedwait(&tq->cond, &tq->mutex, abstime);
+	if ( pstAbsTime )
+	{
+		nRc = pthread_cond_timedwait( &pstThreadQueue->cond, &pstThreadQueue->mutex, pstAbsTime );
+	}
 	else
-		rc = pthread_cond_wait(&tq->cond, &tq->mutex);
-	if (rc)
+	{
+		nRc = pthread_cond_wait( &pstThreadQueue->cond, &pstThreadQueue->mutex );
+	}
+
+	if ( nRc )
+	{
 		goto out;
-	if (list_empty(&tq->q))
+	}
+	if ( list_empty( &pstThreadQueue->q ) )
+	{
 		goto out;
+	}
 
 pop:
-	ent = list_entry(tq->q.next, struct tq_ent, q_node);
-	rval = ent->data;
+	pstTqEnt	= list_entry( pstThreadQueue->q.next, struct tq_ent, q_node );
+	rval		= pstTqEnt->data;
 
-	list_del(&ent->q_node);
-	free(ent);
+	list_del( &pstTqEnt->q_node );
+	free( pstTqEnt );
 
 out:
-	pthread_mutex_unlock(&tq->mutex);
+	pthread_mutex_unlock( &pstThreadQueue->mutex );
 	return rval;
 }
