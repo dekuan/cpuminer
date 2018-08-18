@@ -488,7 +488,6 @@ json_t *json_rpc_call(CURL *curl, const char *url,
 		{
 			s = json_dumps( err_val, JSON_INDENT( 3 ) );
 		}
-		}
 		else
 		{
 			s = strdup( "(unknown reason)" );

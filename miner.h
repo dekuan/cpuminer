@@ -214,16 +214,16 @@ extern void diff_to_target(uint32_t *target, double diff);
 
 struct stratum_job
 {
-	char *job_id;
-	unsigned char prevhash[32];
+	char * job_id;
+	unsigned char prevhash[ 32 ];
 	size_t coinbase_size;
-	unsigned char *coinbase;
-	unsigned char *xnonce2;
+	unsigned char * coinbase;
+	unsigned char * xnonce2;
 	int merkle_count;
-	unsigned char **merkle;
-	unsigned char version[4];
-	unsigned char nbits[4];
-	unsigned char ntime[4];
+	unsigned char ** merkle;
+	unsigned char version[ 4 ];
+	unsigned char nbits[ 4 ];
+	unsigned char ntime[ 4 ];
 	bool clean;
 	double diff;
 };

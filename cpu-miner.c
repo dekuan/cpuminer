@@ -172,7 +172,7 @@ static pthread_mutex_t _hThMutexStatsLock;
 
 static unsigned long accepted_count = 0L;
 static unsigned long rejected_count = 0L;
-static double *thr_hashrates;
+static double * _arrDblThrHashRates;
 
 
 #ifdef HAVE_GETOPT_LONG
@@ -815,7 +815,7 @@ static void share_result( int result, const char * reason )
 	pthread_mutex_lock( &_hThMutexStatsLock );
 	for ( i = 0; i < opt_n_threads; i++ )
 	{
-		hashrate += thr_hashrates[ i ];
+		hashrate += _arrDblThrHashRates[ i ];
 	}
 
 	//	...
@@ -1441,7 +1441,7 @@ static void * miner_thread( void * userdata )
 		{
 			n64Max64	= g_work_time + ( have_longpoll ? LP_SCANTIME : opt_scantime ) - time( NULL );
 		}
-		n64Max64 *= thr_hashrates[ nThrId ];
+		n64Max64 *= _arrDblThrHashRates[ nThrId ];
 		if ( n64Max64 <= 0 )
 		{
 			switch ( opt_algo )
@@ -1488,20 +1488,20 @@ static void * miner_thread( void * userdata )
 		if ( stDiff.tv_usec || stDiff.tv_sec )
 		{
 			pthread_mutex_lock( &_hThMutexStatsLock );
-			thr_hashrates[ nThrId ] = ulnHashesDone / ( stDiff.tv_sec + 1e-6 * stDiff.tv_usec );
+			_arrDblThrHashRates[ nThrId ] = ulnHashesDone / ( stDiff.tv_sec + 1e-6 * stDiff.tv_usec );
 			pthread_mutex_unlock( &_hThMutexStatsLock );
 		}
 		if ( ! opt_quiet )
 		{
-			sprintf( s, thr_hashrates[ nThrId ] >= 1e6 ? "%.0f" : "%.2f", 1e-3 * thr_hashrates[ nThrId ] );
+			sprintf( s, _arrDblThrHashRates[ nThrId ] >= 1e6 ? "%.0f" : "%.2f", 1e-3 * _arrDblThrHashRates[ nThrId ] );
 			applog( LOG_INFO, "thread %d: %lu hashes, %s khash/s", nThrId, ulnHashesDone, s );
 		}
 		if ( opt_benchmark && nThrId == opt_n_threads - 1 )
 		{
 			double hashrate = 0.;
-			for ( i = 0; i < opt_n_threads && thr_hashrates[ i ]; i++ )
+			for ( i = 0; i < opt_n_threads && _arrDblThrHashRates[ i ]; i++ )
 			{
-				hashrate += thr_hashrates[ i ];
+				hashrate += _arrDblThrHashRates[ i ];
 			}
 			if ( i == opt_n_threads )
 			{
@@ -2361,11 +2361,11 @@ int main( int argc, char * argv[] )
 		applog( LOG_ERR, "failed to calloc memory for struct thr_info" );
 		return 1;
 	}
-	
-	thr_hashrates = (double *)calloc( opt_n_threads, sizeof( double ) );
-	if ( ! thr_hashrates )
+
+	_arrDblThrHashRates = (double *)calloc( opt_n_threads, sizeof( double ) );
+	if ( ! _arrDblThrHashRates )
 	{
-		applog( LOG_ERR, "failed to calloc memory for struct thr_hashrates" );
+		applog( LOG_ERR, "failed to calloc memory for struct _arrDblThrHashRates" );
 		return 1;
 	}
 
