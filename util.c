@@ -75,22 +75,27 @@ void applog(int prio, const char *fmt, ...)
 	va_start(ap, fmt);
 
 #ifdef HAVE_SYSLOG_H
-	if (use_syslog) {
+	if ( g_bUseSysLog )
+	{
 		va_list ap2;
-		char *buf;
+		char * buf;
 		int len;
 		
-		va_copy(ap2, ap);
-		len = vsnprintf(NULL, 0, fmt, ap2) + 1;
-		va_end(ap2);
-		buf = alloca(len);
-		if (vsnprintf(buf, len, fmt, ap) >= 0)
-			syslog(prio, "%s", buf);
+		va_copy( ap2, ap );
+		len = vsnprintf( NULL, 0, fmt, ap2 ) + 1;
+		va_end( ap2 );
+		buf = alloca( len );
+		if ( vsnprintf( buf, len, fmt, ap ) >= 0 )
+		{
+			syslog( prio, "%s", buf );
+		}
+
 	}
 #else
 	if (0) {}
 #endif
-	else {
+	else
+	{
 		char *f;
 		int len;
 		time_t now;
@@ -435,18 +440,19 @@ json_t *json_rpc_call(CURL *curl, const char *url,
 	}
 
 	/* If X-Stratum was found, activate Stratum */
-	if (want_stratum && hi.stratum_url &&
-	    !strncasecmp(hi.stratum_url, "stratum+tcp://", 14)) {
+	if ( g_bWantStratum && hi.stratum_url &&
+		! strncasecmp( hi.stratum_url, "stratum+tcp://", 14 ) )
+	{
 		g_bHaveStratum = true;
-		tq_push(thr_info[stratum_thr_id].q, hi.stratum_url);
+		tq_push( thr_info[ stratum_thr_id ].q, hi.stratum_url );
 		hi.stratum_url = NULL;
 	}
 
 	/* If X-Long-Polling was found, activate long polling */
-	if ( ! have_longpoll && want_longpoll && hi.lp_path && ! g_bHaveGbt &&
+	if ( ! g_bHaveLongPoll && g_bWantLongPoll && hi.lp_path && ! g_bHaveGbt &&
 		g_bAllowGetWork && ! g_bHaveStratum )
 	{
-		have_longpoll	= true;
+		g_bHaveLongPoll	= true;
 		tq_push( thr_info[ longpoll_thr_id ].q, hi.lp_path );
 		hi.lp_path = NULL;
 	}

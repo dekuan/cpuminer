@@ -132,16 +132,16 @@ static const char * algo_names[] =
 bool opt_debug = false;
 bool opt_protocol = false;
 
-static bool opt_benchmark = false;
+static bool _bOptBenchmark = false;
 bool opt_redirect = true;
-bool want_longpoll = true;
-bool have_longpoll = false;
+bool g_bWantLongPoll = true;
+bool g_bHaveLongPoll = false;
 bool g_bHaveGbt = true;
 bool g_bAllowGetWork = true;
-bool want_stratum = true;
+bool g_bWantStratum = true;
 bool g_bHaveStratum = false;
-bool use_syslog = false;
-static bool opt_background = false;
+bool g_bUseSysLog = false;
+static bool _bOptBackground = false;
 static bool opt_quiet = false;
 static int opt_retries = -1;
 static int opt_fail_pause = 30;
@@ -149,8 +149,8 @@ int opt_timeout = 0;
 static int opt_scantime = 5;
 static enum algos opt_algo = ALGO_SCRYPT;
 static int opt_scrypt_n = 1024;
-static int opt_n_threads;
-static int num_processors;
+static int _nOptThreadNumber;
+static int _nProcessorNumber;
 static char *rpc_url;
 static char *rpc_userpass;
 static char *rpc_user, *rpc_pass;
@@ -783,16 +783,16 @@ static bool gbt_work_decode( const json_t * val, struct work * work )
 
 	/* Long polling */
 	tmp	= json_object_get( val, "longpollid" );
-	if ( want_longpoll && json_is_string( tmp ) )
+	if ( g_bWantLongPoll && json_is_string( tmp ) )
 	{
 		free( lp_id );
 		lp_id	= strdup( json_string_value( tmp ) );
-		if ( ! have_longpoll )
+		if ( ! g_bHaveLongPoll )
 		{
 			char * lp_uri;
 			tmp	= json_object_get( val, "longpolluri" );
 			lp_uri	= strdup( json_is_string( tmp ) ? json_string_value( tmp ) : rpc_url );
-			have_longpoll	= true;
+			g_bHaveLongPoll	= true;
 			tq_push( thr_info[ longpoll_thr_id ].q, lp_uri );
 		}
 	}
@@ -813,7 +813,7 @@ static void share_result( int result, const char * reason )
 
 	hashrate	= 0.;
 	pthread_mutex_lock( &_hThMutexStatsLock );
-	for ( i = 0; i < opt_n_threads; i++ )
+	for ( i = 0; i < _nOptThreadNumber; i++ )
 	{
 		hashrate += _arrDblThrHashRates[ i ];
 	}
@@ -1183,43 +1183,55 @@ static void * workio_thread( void * userdata )
 	return NULL;
 }
 
-static bool get_work(struct thr_info *thr, struct work *work)
+/**
+ *	get work via RPC request
+ *	@param pstThr
+ *	@param pstWork
+ *	@return
+ */
+static bool get_work( struct thr_info * pstThr, struct work * pstWork )
 {
-	struct workio_cmd *wc;
-	struct work *work_heap;
+	struct workio_cmd * pstWorkCmd;
+	struct work * pstWorkHeap;
 
-	if (opt_benchmark) {
-		memset(work->data, 0x55, 76);
-		work->data[17] = swab32(time(NULL));
-		memset(work->data + 19, 0x00, 52);
-		work->data[20] = 0x80000000;
-		work->data[31] = 0x00000280;
-		memset(work->target, 0x00, sizeof(work->target));
+	if ( _bOptBenchmark )
+	{
+		memset( pstWork->data, 0x55, 76 );
+		pstWork->data[ 17 ]	= swab32( time( NULL ) );
+		memset( pstWork->data + 19, 0x00, 52 );
+		pstWork->data[ 20 ]	= 0x80000000;
+		pstWork->data[ 31 ]	= 0x00000280;
+		memset( pstWork->target, 0x00, sizeof( pstWork->target ) );
 		return true;
 	}
 
 	/* fill out work request message */
-	wc = calloc(1, sizeof(*wc));
-	if (!wc)
+	pstWorkCmd = calloc( 1, sizeof(*pstWorkCmd) );
+	if ( ! pstWorkCmd )
+	{
 		return false;
+	}
 
-	wc->cmd = WC_GET_WORK;
-	wc->thr = thr;
+	pstWorkCmd->cmd	= WC_GET_WORK;
+	pstWorkCmd->thr	= pstThr;
 
 	/* send work request to workio thread */
-	if (!tq_push(thr_info[work_thr_id].q, wc)) {
-		workio_cmd_free(wc);
+	if ( ! tq_push( thr_info[ work_thr_id ].q, pstWorkCmd ) )
+	{
+		workio_cmd_free( pstWorkCmd );
 		return false;
 	}
 
 	/* wait for response, a unit of work */
-	work_heap = tq_pop(thr->q, NULL);
-	if (!work_heap)
+	pstWorkHeap	= tq_pop( pstThr->q, NULL );
+	if ( ! pstWorkHeap )
+	{
 		return false;
+	}
 
 	/* copy returned work into storage provided by caller */
-	memcpy(work, work_heap, sizeof(*work));
-	free(work_heap);
+	memcpy( pstWork, pstWorkHeap, sizeof(*pstWork) );
+	free( pstWorkHeap );
 
 	return true;
 }
@@ -1327,7 +1339,7 @@ static void * miner_thread( void * userdata )
 	int nThrId			= mythr->id;
 	struct work stWork		= { { 0 } };
 	uint32_t uMaxNonce;
-	uint32_t uEndNonce		= 0xffffffffU / opt_n_threads * ( nThrId + 1 ) - 0x20;
+	uint32_t uEndNonce		= 0xffffffffU / _nOptThreadNumber * ( nThrId + 1 ) - 0x20;
 	unsigned char * puszScratchBuf	= NULL;
 	char s[ 16 ];
 	int i;
@@ -1337,7 +1349,7 @@ static void * miner_thread( void * userdata )
 	 *	and if that fails, then SCHED_BATCH. No need for this to be an
 	 *	error if it fails
 	 */
-	if ( ! opt_benchmark )
+	if ( ! _bOptBenchmark )
 	{
 		setpriority( PRIO_PROCESS, 0, 19 );
 		drop_policy();
@@ -1347,13 +1359,13 @@ static void * miner_thread( void * userdata )
 	 *	Cpu affinity only makes sense if the number of threads is a multiple
 	 *	of the number of CPUs
 	 */
-	if ( num_processors > 1 && opt_n_threads % num_processors == 0 )
+	if ( _nProcessorNumber > 1 && _nOptThreadNumber % _nProcessorNumber == 0 )
 	{
 		if ( ! opt_quiet )
 		{
-			applog( LOG_INFO, "Binding thread %d to cpu %d", nThrId, nThrId % num_processors );
+			applog( LOG_INFO, "Binding thread %d to cpu %d", nThrId, nThrId % _nProcessorNumber );
 		}
-		affine_to_cpu( nThrId, nThrId % num_processors );
+		affine_to_cpu( nThrId, nThrId % _nProcessorNumber );
 	}
 
 	if ( opt_algo == ALGO_SCRYPT )
@@ -1395,7 +1407,7 @@ static void * miner_thread( void * userdata )
 		}
 		else
 		{
-			int min_scantime	= have_longpoll ? LP_SCANTIME : opt_scantime;
+			int min_scantime	= g_bHaveLongPoll ? LP_SCANTIME : opt_scantime;
 
 			/* obtain new work from internal workio thread */
 			pthread_mutex_lock( &_hThMutexWorkLock );
@@ -1423,7 +1435,7 @@ static void * miner_thread( void * userdata )
 		{
 			work_free( &stWork );
 			work_copy( &stWork, &_stWork );
-			stWork.data[ 19 ] = 0xffffffffU / opt_n_threads * nThrId;
+			stWork.data[ 19 ] = 0xffffffffU / _nOptThreadNumber * nThrId;
 		}
 		else
 		{
@@ -1439,7 +1451,7 @@ static void * miner_thread( void * userdata )
 		}
 		else
 		{
-			n64Max64	= g_work_time + ( have_longpoll ? LP_SCANTIME : opt_scantime ) - time( NULL );
+			n64Max64	= g_work_time + ( g_bHaveLongPoll ? LP_SCANTIME : opt_scantime ) - time( NULL );
 		}
 		n64Max64 *= _arrDblThrHashRates[ nThrId ];
 		if ( n64Max64 <= 0 )
@@ -1496,14 +1508,14 @@ static void * miner_thread( void * userdata )
 			sprintf( s, _arrDblThrHashRates[ nThrId ] >= 1e6 ? "%.0f" : "%.2f", 1e-3 * _arrDblThrHashRates[ nThrId ] );
 			applog( LOG_INFO, "thread %d: %lu hashes, %s khash/s", nThrId, ulnHashesDone, s );
 		}
-		if ( opt_benchmark && nThrId == opt_n_threads - 1 )
+		if ( _bOptBenchmark && nThrId == _nOptThreadNumber - 1 )
 		{
 			double hashrate = 0.;
-			for ( i = 0; i < opt_n_threads && _arrDblThrHashRates[ i ]; i++ )
+			for ( i = 0; i < _nOptThreadNumber && _arrDblThrHashRates[ i ]; i++ )
 			{
 				hashrate += _arrDblThrHashRates[ i ];
 			}
-			if ( i == opt_n_threads )
+			if ( i == _nOptThreadNumber )
 			{
 				sprintf( s, hashrate >= 1e6 ? "%.0f" : "%.2f", 1e-3 * hashrate );
 				applog( LOG_INFO, "Total: %s khash/s", s );
@@ -1511,7 +1523,7 @@ static void * miner_thread( void * userdata )
 		}
 
 		/* if nonce found, submit work */
-		if ( nRc && ! opt_benchmark && ! submit_work( mythr, &stWork ) )
+		if ( nRc && ! _bOptBenchmark && ! submit_work( mythr, &stWork ) )
 		{
 			break;
 		}
@@ -1526,7 +1538,7 @@ out:
 static void restart_threads( void )
 {
 	int i;
-	for ( i = 0; i < opt_n_threads; i++ )
+	for ( i = 0; i < _nOptThreadNumber; i++ )
 	{
 		work_restart[ i ].restart = 1;
 	}
@@ -1613,15 +1625,18 @@ start:
 			pthread_mutex_lock(&_hThMutexWorkLock);
 			g_work_time -= LP_SCANTIME;
 			pthread_mutex_unlock(&_hThMutexWorkLock);
-			if (err == CURLE_OPERATION_TIMEDOUT) {
+			if ( err == CURLE_OPERATION_TIMEDOUT )
+			{
 				restart_threads();
-			} else {
-				have_longpoll = false;
+			}
+			else
+			{
+				g_bHaveLongPoll	= false;
 				restart_threads();
-				free(hdr_path);
-				free(lp_url);
+				free( hdr_path );
+				free( lp_url );
 				lp_url = NULL;
-				sleep(opt_fail_pause);
+				sleep( opt_fail_pause );
 				goto start;
 			}
 		}
@@ -1820,28 +1835,28 @@ static void strhide( char * s )
 
 static void parse_config(json_t *config, char *pname, char *ref);
 
-static void parse_arg( int key, char * arg, char * pname )
+static void parse_arg( int nKey, char * pszArg, char * pszName )
 {
 	char * p;
 	int v, i;
 
-	switch( key )
+	switch( nKey )
 	{
 	case 'a':
 		for ( i = 0; i < ARRAY_SIZE(algo_names); i++ )
 		{
 			v	= strlen( algo_names[ i ] );
-			if ( ! strncmp( arg, algo_names[ i ], v ) )
+			if ( ! strncmp( pszArg, algo_names[ i ], v ) )
 			{
-				if ( arg[ v ] == '\0' )
+				if ( pszArg[ v ] == '\0' )
 				{
 					opt_algo = i;
 					break;
 				}
-				if ( arg[ v ] == ':' && i == ALGO_SCRYPT )
+				if ( pszArg[ v ] == ':' && i == ALGO_SCRYPT )
 				{
 					char * ep;
-					v = strtol( arg + v + 1, &ep, 10 );
+					v = strtol( pszArg + v + 1, &ep, 10 );
 					if ( *ep || v & (v-1) || v < 2 )
 					{
 						continue;
@@ -1856,32 +1871,32 @@ static void parse_arg( int key, char * arg, char * pname )
 
 		if ( i == ARRAY_SIZE( algo_names ) )
 		{
-			fprintf( stderr, "%s: unknown algorithm -- '%s'\n", pname, arg );
+			fprintf( stderr, "%s: unknown algorithm -- '%s'\n", pszName, pszArg );
 			show_usage_and_exit( 1 );
 		}
 		break;
 
 	case 'B':
-		opt_background = true;
+		_bOptBackground = true;
 		break;
 
 	case 'c':
 	{
 		json_error_t err;
-		json_t * config = JSON_LOAD_FILE( arg, &err );
+		json_t * config = JSON_LOAD_FILE( pszArg, &err );
 		if ( ! json_is_object( config ) )
 		{
 			if ( err.line < 0 )
 			{
-				fprintf( stderr, "%s: %s\n", pname, err.text );
+				fprintf( stderr, "%s: %s\n", pszName, err.text );
 			}
 			else
 			{
-				fprintf( stderr, "%s: %s:%d: %s\n", pname, arg, err.line, err.text );
+				fprintf( stderr, "%s: %s:%d: %s\n", pszName, pszArg, err.line, err.text );
 			}
 			exit( 1 );
 		}
-		parse_config( config, pname, arg );
+		parse_config( config, pszName, pszArg );
 		json_decref( config );
 		break;
 	}
@@ -1896,8 +1911,8 @@ static void parse_arg( int key, char * arg, char * pname )
 
 	case 'p':
 		free( rpc_pass );
-		rpc_pass = strdup( arg );
-		strhide( arg );
+		rpc_pass = strdup( pszArg );
+		strhide( pszArg );
 		break;
 
 	case 'P':
@@ -1905,7 +1920,7 @@ static void parse_arg( int key, char * arg, char * pname )
 		break;
 
 	case 'r':
-		v = atoi( arg );
+		v = atoi( pszArg );
 		if ( v < -1 || v > 9999 )	/* sanity check */
 		{
 			show_usage_and_exit( 1 );
@@ -1914,7 +1929,7 @@ static void parse_arg( int key, char * arg, char * pname )
 		break;
 
 	case 'R':
-		v = atoi( arg );
+		v = atoi( pszArg );
 		if ( v < 1 || v > 9999 )	/* sanity check */
 		{
 			show_usage_and_exit( 1 );
@@ -1923,7 +1938,7 @@ static void parse_arg( int key, char * arg, char * pname )
 		break;
 
 	case 's':
-		v = atoi( arg );
+		v = atoi( pszArg );
 		if ( v < 1 || v > 9999 )	/* sanity check */
 		{
 			show_usage_and_exit( 1 );
@@ -1932,7 +1947,7 @@ static void parse_arg( int key, char * arg, char * pname )
 		break;
 
 	case 'T':
-		v = atoi( arg );
+		v = atoi( pszArg );
 		if ( v < 1 || v > 99999 )	/* sanity check */
 		{
 			show_usage_and_exit( 1 );
@@ -1941,26 +1956,26 @@ static void parse_arg( int key, char * arg, char * pname )
 		break;
 
 	case 't':
-		v = atoi( arg );
+		v = atoi( pszArg );
 		if ( v < 1 || v > 9999 )	/* sanity check */
 		{
 			show_usage_and_exit( 1 );
 		}
-		opt_n_threads = v;
+		_nOptThreadNumber = v;
 		break;
 
 	case 'u':
 		free( rpc_user );
-		rpc_user = strdup( arg );
+		rpc_user = strdup( pszArg );
 		break;
 
 	case 'o':
 	{
 		/* --url */
 		char * ap, * hp;
-		ap	= strstr( arg, "://" );
-		ap	= ap ? ap + 3 : arg;
-		hp	= strrchr( arg, '@' );
+		ap	= strstr( pszArg, "://" );
+		ap	= ap ? ap + 3 : pszArg;
+		hp	= strrchr( pszArg, '@' );
 		if ( hp )
 		{
 			*hp	= '\0';
@@ -1997,48 +2012,48 @@ static void parse_arg( int key, char * arg, char * pname )
 			hp = ap;
 		}
 
-		if ( ap != arg )
+		if ( ap != pszArg )
 		{
-			if ( strncasecmp( arg, "http://", 7 ) &&
-				strncasecmp( arg, "https://", 8 ) &&
-				strncasecmp( arg, "stratum+tcp://", 14 ) &&
-				strncasecmp( arg, "stratum+tcps://", 15 ) )
+			if ( strncasecmp( pszArg, "http://", 7 ) &&
+				strncasecmp( pszArg, "https://", 8 ) &&
+				strncasecmp( pszArg, "stratum+tcp://", 14 ) &&
+				strncasecmp( pszArg, "stratum+tcps://", 15 ) )
 			{
-				fprintf( stderr, "%s: unknown protocol -- '%s'\n", pname, arg );
+				fprintf( stderr, "%s: unknown protocol -- '%s'\n", pszName, pszArg );
 				show_usage_and_exit( 1 );
 			}
 			free( rpc_url );
-			rpc_url	= strdup( arg );
-			strcpy( rpc_url + ( ap - arg ), hp );
+			rpc_url	= strdup( pszArg );
+			strcpy( rpc_url + ( ap - pszArg ), hp );
 		}
 		else
 		{
 			if ( *hp == '\0' || *hp == '/' )
 			{
-				fprintf( stderr, "%s: invalid URL -- '%s'\n", pname, arg );
+				fprintf( stderr, "%s: invalid URL -- '%s'\n", pszName, pszArg );
 				show_usage_and_exit( 1 );
 			}
 			free( rpc_url );
 			rpc_url	= malloc( strlen( hp ) + 8 );
 			sprintf( rpc_url, "http://%s", hp );
 		}
-		g_bHaveStratum = ! opt_benchmark && ! strncasecmp( rpc_url, "stratum", 7 );
+		g_bHaveStratum = ! _bOptBenchmark && ! strncasecmp( rpc_url, "stratum", 7 );
 		break;
 	}
 
 	case 'O':
 		/* --userpass */
-		p = strchr( arg, ':' );
+		p = strchr( pszArg, ':' );
 		if ( !p )
 		{
-			fprintf( stderr, "%s: invalid username:password pair -- '%s'\n", pname, arg );
+			fprintf( stderr, "%s: invalid username:password pair -- '%s'\n", pszName, pszArg );
 			show_usage_and_exit( 1 );
 		}
 		free( rpc_userpass );
-		rpc_userpass	= strdup( arg );
+		rpc_userpass	= strdup( pszArg );
 		free( rpc_user );
-		rpc_user	= calloc( p - arg + 1, 1 );
-		strncpy( rpc_user, arg, p - arg );
+		rpc_user	= calloc( p - pszArg + 1, 1 );
+		strncpy( rpc_user, pszArg, p - pszArg );
 		free( rpc_pass );
 		rpc_pass	= strdup( ++p );
 		strhide( p );
@@ -2046,11 +2061,11 @@ static void parse_arg( int key, char * arg, char * pname )
 
 	case 'x':
 		/* --proxy */
-		if ( ! strncasecmp( arg, "socks4://", 9 ) )
+		if ( ! strncasecmp( pszArg, "socks4://", 9 ) )
 		{
 			opt_proxy_type = CURLPROXY_SOCKS4;
 		}
-		else if ( ! strncasecmp( arg, "socks5://", 9 ) )
+		else if ( ! strncasecmp( pszArg, "socks5://", 9 ) )
 		{
 			opt_proxy_type = CURLPROXY_SOCKS5;
 		}
@@ -2070,27 +2085,27 @@ static void parse_arg( int key, char * arg, char * pname )
 		}
 
 		free( opt_proxy );
-		opt_proxy	= strdup( arg );
+		opt_proxy	= strdup( pszArg );
 		break;
 
 	case 1001:
 		free( opt_cert );
-		opt_cert	= strdup( arg );
+		opt_cert	= strdup( pszArg );
 		break;
 
 	case 1005:
-		opt_benchmark	= true;
-		want_longpoll	= false;
-		want_stratum	= false;
+		_bOptBenchmark	= true;
+		g_bWantLongPoll	= false;
+		g_bWantStratum	= false;
 		g_bHaveStratum	= false;
 		break;
 
 	case 1003:
-		want_longpoll	= false;
+		g_bWantLongPoll	= false;
 		break;
 
 	case 1007:
-		want_stratum	= false;
+		g_bWantStratum	= false;
 		break;
 
 	case 1009:
@@ -2107,26 +2122,26 @@ static void parse_arg( int key, char * arg, char * pname )
 
 	case 1013:
 		/* --coinbase-addr */
-		pk_script_size	= address_to_script( pk_script, sizeof( pk_script ), arg );
+		pk_script_size	= address_to_script( pk_script, sizeof( pk_script ), pszArg );
 		if ( ! pk_script_size )
 		{
-			fprintf( stderr, "%s: invalid address -- '%s'\n", pname, arg );
+			fprintf( stderr, "%s: invalid address -- '%s'\n", pszName, pszArg );
 			show_usage_and_exit( 1 );
 		}
 		break;
 
 	case 1015:
 		/* --coinbase-sig */
-		if ( strlen( arg ) + 1 > sizeof( coinbase_sig ) )
+		if ( strlen( pszArg ) + 1 > sizeof( coinbase_sig ) )
 		{
-			fprintf( stderr, "%s: coinbase signature too long\n", pname );
+			fprintf( stderr, "%s: coinbase signature too long\n", pszName );
 			show_usage_and_exit( 1 );
 		}
-		strcpy( coinbase_sig, arg );
+		strcpy( coinbase_sig, pszArg );
 		break;
 
 	case 'S':
-		use_syslog = true;
+		g_bUseSysLog = true;
 		break;
 
 	case 'V':
@@ -2233,7 +2248,7 @@ static void signal_handler(int sig)
 int main( int argc, char * argv[] )
 {
 	struct thr_info * thr;
-	long flags;
+//	long lnFlags;
 	int i;
 
 	//	...
@@ -2243,22 +2258,21 @@ int main( int argc, char * argv[] )
 	/* parse command line */
 	parse_cmdline( argc, argv );
 
-	if ( ! opt_benchmark && ! rpc_url )
-	{
-		fprintf( stderr, "%s: no URL supplied\n", argv[0] );
-		show_usage_and_exit( 1 );
-	}
-
-	if ( ! rpc_userpass )
-	{
-		rpc_userpass = malloc( strlen( rpc_user ) + strlen( rpc_pass ) + 2 );
-		if ( ! rpc_userpass )
-		{
-			return 1;
-		}
-
-		sprintf( rpc_userpass, "%s:%s", rpc_user, rpc_pass );
-	}
+//	if ( ! _bOptBenchmark && ! rpc_url )
+//	{
+//		fprintf( stderr, "%s: no URL supplied\n", argv[0] );
+//		show_usage_and_exit( 1 );
+//	}
+//	if ( ! rpc_userpass )
+//	{
+//		rpc_userpass = malloc( strlen( rpc_user ) + strlen( rpc_pass ) + 2 );
+//		if ( ! rpc_userpass )
+//		{
+//			return 1;
+//		}
+//
+//		sprintf( rpc_userpass, "%s:%s", rpc_user, rpc_pass );
+//	}
 
 	//	...
 	pthread_mutex_init( &g_hThMutexAppLogLock, NULL );
@@ -2267,18 +2281,20 @@ int main( int argc, char * argv[] )
 	pthread_mutex_init( &_stStratum.sock_lock, NULL );
 	pthread_mutex_init( &_stStratum.work_lock, NULL );
 
-	flags = opt_benchmark || ( strncasecmp( rpc_url, "https://", 8 ) &&
-	                          strncasecmp( rpc_url, "stratum+tcps://", 15 ) )
-	      ? ( CURL_GLOBAL_ALL & ~CURL_GLOBAL_SSL )
-	      : CURL_GLOBAL_ALL;
-	if ( curl_global_init( flags ) )
-	{
-		applog( LOG_ERR, "CURL initialization failed" );
-		return 1;
-	}
+//	lnFlags = _bOptBenchmark || ( strncasecmp( rpc_url, "https://", 8 ) && strncasecmp( rpc_url, "stratum+tcps://", 15 ) )
+//			? ( CURL_GLOBAL_ALL & ~CURL_GLOBAL_SSL )
+//			: CURL_GLOBAL_ALL;
+//	if ( curl_global_init( lnFlags ) )
+//	{
+//		applog( LOG_ERR, "CURL initialization failed" );
+//		return 1;
+//	}
 
 #ifndef WIN32
-	if ( opt_background )
+	//
+	//	NOT Windows
+	//
+	if ( _bOptBackground )
 	{
 		i = fork();
 		if ( i < 0 )
@@ -2311,58 +2327,63 @@ int main( int argc, char * argv[] )
 
 #if defined( WIN32 )
 
+	//
+	//	for Windows
+	//
 	SYSTEM_INFO sysinfo;
 	GetSystemInfo( &sysinfo );
-	num_processors = sysinfo.dwNumberOfProcessors;
+	_nProcessorNumber = sysinfo.dwNumberOfProcessors;
 
 #elif defined( _SC_NPROCESSORS_CONF )
 
-	num_processors = sysconf(_SC_NPROCESSORS_CONF);
+	_nProcessorNumber = sysconf(_SC_NPROCESSORS_CONF);
 
 #elif defined( CTL_HW ) && defined( HW_NCPU )
 
 	int req[]	= { CTL_HW, HW_NCPU };
-	size_t len	= sizeof( num_processors );
-	sysctl( req, 2, &num_processors, &len, NULL, 0 );
+	size_t len	= sizeof( _nProcessorNumber );
+	sysctl( req, 2, &_nProcessorNumber, &len, NULL, 0 );
 
 #else
-	num_processors = 1;
+
+	_nProcessorNumber = 1;
+
 #endif
 
-	if ( num_processors < 1 )
+	if ( _nProcessorNumber < 1 )
 	{
-		num_processors = 1;
+		_nProcessorNumber = 1;
 	}
-	if ( ! opt_n_threads )
+	if ( ! _nOptThreadNumber )
 	{
-		opt_n_threads = num_processors;
+		_nOptThreadNumber = _nProcessorNumber;
 	}
 
 
 #ifdef HAVE_SYSLOG_H
 
-	if ( use_syslog )
+	if ( g_bUseSysLog )
 	{
 		openlog( "cpuminer", LOG_PID, LOG_USER );
 	}
 
 #endif
 
-	work_restart	= calloc( opt_n_threads, sizeof( *work_restart ) );
+	work_restart	= calloc( _nOptThreadNumber, sizeof( *work_restart ) );
 	if ( ! work_restart )
 	{
 		applog( LOG_ERR, "failed to calloc memory for struct work_restart" );
 		return 1;
 	}
 
-	thr_info = calloc( opt_n_threads + 3, sizeof( *thr ) );
+	thr_info = calloc( _nOptThreadNumber + 3, sizeof( *thr ) );
 	if ( ! thr_info )
 	{
 		applog( LOG_ERR, "failed to calloc memory for struct thr_info" );
 		return 1;
 	}
 
-	_arrDblThrHashRates = (double *)calloc( opt_n_threads, sizeof( double ) );
+	_arrDblThrHashRates = (double *)calloc( _nOptThreadNumber, sizeof( double ) );
 	if ( ! _arrDblThrHashRates )
 	{
 		applog( LOG_ERR, "failed to calloc memory for struct _arrDblThrHashRates" );
@@ -2370,7 +2391,7 @@ int main( int argc, char * argv[] )
 	}
 
 	/* init workio thread info */
-	work_thr_id	= opt_n_threads;
+	work_thr_id	= _nOptThreadNumber;
 	thr		= & thr_info[ work_thr_id ];
 	thr->id		= work_thr_id;
 	thr->q		= tq_new();
@@ -2386,10 +2407,10 @@ int main( int argc, char * argv[] )
 		return 1;
 	}
 
-	if ( want_longpoll && ! g_bHaveStratum )
+	if ( g_bWantLongPoll && ! g_bHaveStratum )
 	{
 		/* init longpoll thread info */
-		longpoll_thr_id	= opt_n_threads + 1;
+		longpoll_thr_id	= _nOptThreadNumber + 1;
 		thr		= &thr_info[ longpoll_thr_id ];
 		thr->id		= longpoll_thr_id;
 		thr->q		= tq_new();	//	calloc, pthread_mutex_init, pthread_cond_init
@@ -2406,13 +2427,13 @@ int main( int argc, char * argv[] )
 			return 1;
 		}
 	}
-	if ( want_stratum )
+	if ( g_bWantStratum )
 	{
 		/* init stratum thread info */
-		stratum_thr_id	= opt_n_threads + 2;
+		stratum_thr_id	= _nOptThreadNumber + 2;
 		thr		= &thr_info[stratum_thr_id];
 		thr->id		= stratum_thr_id;
-		thr->q		 = tq_new();
+		thr->q		= tq_new();
 		if ( ! thr->q )
 		{
 			return 1;
@@ -2432,7 +2453,7 @@ int main( int argc, char * argv[] )
 	}
 
 	/* start mining threads */
-	for ( i = 0; i < opt_n_threads; i++ )
+	for ( i = 0; i < _nOptThreadNumber; i++ )
 	{
 		thr	= &thr_info[ i ];
 
@@ -2449,10 +2470,7 @@ int main( int argc, char * argv[] )
 		}
 	}
 
-	applog( LOG_INFO, "%d miner threads started, "
-		"using '%s' algorithm.",
-		opt_n_threads,
-		algo_names[ opt_algo ] );
+	applog( LOG_INFO, "%d miner threads started, using '%s' algorithm.", _nOptThreadNumber, algo_names[ opt_algo ] );
 
 	/* main loop - simply wait for workio thread to exit */
 	pthread_join( thr_info[ work_thr_id ].pth, NULL );
