@@ -43,6 +43,7 @@
 
 
 #ifdef __linux /* Linux specific policy and affinity management */
+
 	#include <sched.h>
 	static inline void drop_policy( void )
 	{
@@ -65,7 +66,9 @@
 		CPU_SET( cpu, &set );
 		sched_setaffinity( 0, sizeof(set), &set );
 	}
+
 #elif defined(__FreeBSD__) /* FreeBSD specific policy and affinity management */
+
 	#include <sys/cpuset.h>
 	static inline void drop_policy( void )
 	{
@@ -79,7 +82,9 @@
 		CPU_SET( cpu, &set );
 		cpuset_setaffinity( CPU_LEVEL_WHICH, CPU_WHICH_TID, -1, sizeof(cpuset_t), &set );
 	}
+
 #else
+
 	static inline void drop_policy( void )
 	{
 	}
@@ -1260,6 +1265,11 @@ static void stratum_gen_work(struct stratum_ctx *sctx, struct work *work)
 
 
 
+/**
+ *	miner thread
+ *	@param	{void*}	userdata
+ *	@return	{void}
+ */
 static void * miner_thread( void * userdata )
 {
 	struct thr_info * mythr		= userdata;
@@ -1317,6 +1327,7 @@ static void * miner_thread( void * userdata )
 		{
 			while ( time( NULL ) >= g_work_time + 120 )
 			{
+				//	sleep in seconds
 				sleep( 1 );
 			}
 			pthread_mutex_lock( &g_work_lock );
@@ -1424,7 +1435,7 @@ static void * miner_thread( void * userdata )
 		}
 		if ( ! opt_quiet )
 		{
-			sprintf( s, thr_hashrates[thr_id] >= 1e6 ? "%.0f" : "%.2f", 1e-3 * thr_hashrates[ thr_id ] );
+			sprintf( s, thr_hashrates[ thr_id ] >= 1e6 ? "%.0f" : "%.2f", 1e-3 * thr_hashrates[ thr_id ] );
 			applog( LOG_INFO, "thread %d: %lu hashes, %s khash/s", thr_id, hashes_done, s );
 		}
 		if ( opt_benchmark && thr_id == opt_n_threads - 1 )
@@ -1458,11 +1469,13 @@ static void restart_threads(void)
 {
 	int i;
 
-	for (i = 0; i < opt_n_threads; i++)
-		work_restart[i].restart = 1;
+	for ( i = 0; i < opt_n_threads; i++ )
+	{
+		work_restart[ i ].restart = 1;
+	}
 }
 
-static void *longpoll_thread(void *userdata)
+static void * longpoll_thread( void * userdata )
 {
 	struct thr_info *mythr = userdata;
 	CURL *curl = NULL;
