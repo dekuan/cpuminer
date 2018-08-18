@@ -41,62 +41,70 @@
 #define PROGRAM_NAME		"minerd"
 #define LP_SCANTIME		60
 
+
 #ifdef __linux /* Linux specific policy and affinity management */
-#include <sched.h>
-static inline void drop_policy(void)
-{
-	struct sched_param param;
-	param.sched_priority = 0;
+	#include <sched.h>
+	static inline void drop_policy( void )
+	{
+		struct sched_param param;
+		param.sched_priority = 0;
 
-#ifdef SCHED_IDLE
-	if (unlikely(sched_setscheduler(0, SCHED_IDLE, &param) == -1))
-#endif
-#ifdef SCHED_BATCH
-		sched_setscheduler(0, SCHED_BATCH, &param);
-#endif
-}
+	#ifdef SCHED_IDLE
+		if ( unlikely( sched_setscheduler( 0, SCHED_IDLE, &param ) == -1 ) )
+	#endif
+	#ifdef SCHED_BATCH
+			sched_setscheduler( 0, SCHED_BATCH, &param );
+	#endif
+	}
 
-static inline void affine_to_cpu(int id, int cpu)
-{
-	cpu_set_t set;
+	static inline void affine_to_cpu( int id, int cpu )
+	{
+		cpu_set_t set;
 
-	CPU_ZERO(&set);
-	CPU_SET(cpu, &set);
-	sched_setaffinity(0, sizeof(set), &set);
-}
+		CPU_ZERO( &set );
+		CPU_SET( cpu, &set );
+		sched_setaffinity( 0, sizeof(set), &set );
+	}
 #elif defined(__FreeBSD__) /* FreeBSD specific policy and affinity management */
-#include <sys/cpuset.h>
-static inline void drop_policy(void)
-{
-}
+	#include <sys/cpuset.h>
+	static inline void drop_policy( void )
+	{
+	}
 
-static inline void affine_to_cpu(int id, int cpu)
-{
-	cpuset_t set;
-	CPU_ZERO(&set);
-	CPU_SET(cpu, &set);
-	cpuset_setaffinity(CPU_LEVEL_WHICH, CPU_WHICH_TID, -1, sizeof(cpuset_t), &set);
-}
+	static inline void affine_to_cpu( int id, int cpu )
+	{
+		cpuset_t set;
+
+		CPU_ZERO( &set );
+		CPU_SET( cpu, &set );
+		cpuset_setaffinity( CPU_LEVEL_WHICH, CPU_WHICH_TID, -1, sizeof(cpuset_t), &set );
+	}
 #else
-static inline void drop_policy(void)
-{
-}
+	static inline void drop_policy( void )
+	{
+	}
 
-static inline void affine_to_cpu(int id, int cpu)
-{
-}
+	static inline void affine_to_cpu( int id, int cpu )
+	{
+	}
 #endif
-		
-enum workio_commands {
+
+
+
+
+enum workio_commands
+{
 	WC_GET_WORK,
 	WC_SUBMIT_WORK,
 };
 
-struct workio_cmd {
+struct workio_cmd
+{
 	enum workio_commands	cmd;
-	struct thr_info		*thr;
-	union {
-		struct work	*work;
+	struct thr_info		* thr;
+	union
+	{
+		struct work	* work;
 	} u;
 };
 
@@ -107,14 +115,18 @@ enum algos
 	ALGO_EQUIHASH,		/* EQUIHASH */
 };
 
-static const char *algo_names[] = {
+static const char * algo_names[] =
+{
 	[ALGO_SCRYPT]		= "scrypt",
 	[ALGO_SHA256D]		= "sha256d",
 	[ALGO_EQUIHASH]		= "equihash",
 };
 
+
+
 bool opt_debug = false;
 bool opt_protocol = false;
+
 static bool opt_benchmark = false;
 bool opt_redirect = true;
 bool want_longpoll = true;
@@ -157,15 +169,17 @@ static unsigned long accepted_count = 0L;
 static unsigned long rejected_count = 0L;
 static double *thr_hashrates;
 
+
 #ifdef HAVE_GETOPT_LONG
-#include <getopt.h>
+	#include <getopt.h>
 #else
-struct option {
-	const char *name;
-	int has_arg;
-	int *flag;
-	int val;
-};
+	struct option
+	{
+		const char *name;
+		int has_arg;
+		int *flag;
+		int val;
+	};
 #endif
 
 static char const usage[] = "\
@@ -222,7 +236,8 @@ static char const short_options[] =
 #endif
 	"a:c:Dhp:Px:qr:R:s:t:T:o:u:O:V";
 
-static struct option const options[] = {
+static struct option const options[] =
+{
 	{ "algo", 1, NULL, 'a' },
 #ifndef WIN32
 	{ "background", 0, NULL, 'B' },
@@ -258,7 +273,8 @@ static struct option const options[] = {
 	{ 0, 0, 0, 0 }
 };
 
-struct work {
+struct work
+{
 	uint32_t data[32];
 	uint32_t target[8];
 
@@ -278,68 +294,87 @@ static bool submit_old = false;
 static char *lp_id;
 
 
-static inline void work_free(struct work *w)
+static inline void work_free( struct work * w )
 {
-	free(w->txs);
-	free(w->workid);
-	free(w->job_id);
-	free(w->xnonce2);
+	free( w->txs );
+	free( w->workid );
+	free( w->job_id );
+	free( w->xnonce2 );
 }
 
-static inline void work_copy(struct work *dest, const struct work *src)
+static inline void work_copy( struct work * dest, const struct work * src )
 {
-	memcpy(dest, src, sizeof(struct work));
-	if (src->txs)
-		dest->txs = strdup(src->txs);
-	if (src->workid)
-		dest->workid = strdup(src->workid);
-	if (src->job_id)
-		dest->job_id = strdup(src->job_id);
-	if (src->xnonce2) {
-		dest->xnonce2 = malloc(src->xnonce2_len);
-		memcpy(dest->xnonce2, src->xnonce2, src->xnonce2_len);
+	memcpy( dest, src, sizeof( struct work ) );
+	if ( src->txs )
+	{
+		dest->txs = strdup( src->txs );
+	}
+	if ( src->workid )
+	{
+		dest->workid = strdup( src->workid );
+	}
+	if ( src->job_id )
+	{
+		dest->job_id = strdup( src->job_id );
+	}
+	if ( src->xnonce2 )
+	{
+		dest->xnonce2 = malloc( src->xnonce2_len );
+		memcpy( dest->xnonce2, src->xnonce2, src->xnonce2_len );
 	}
 }
 
-static bool jobj_binary(const json_t *obj, const char *key,
-			void *buf, size_t buflen)
+static bool jobj_binary( const json_t * obj, const char * key, void * buf, size_t buflen )
 {
-	const char *hexstr;
-	json_t *tmp;
+	const char * hexstr;
+	json_t * tmp;
 
-	tmp = json_object_get(obj, key);
-	if (unlikely(!tmp)) {
-		applog(LOG_ERR, "JSON key '%s' not found", key);
+	//	...
+	tmp = json_object_get( obj, key );
+	if ( unlikely( ! tmp ) )
+	{
+		applog( LOG_ERR, "JSON key '%s' not found", key );
 		return false;
 	}
-	hexstr = json_string_value(tmp);
-	if (unlikely(!hexstr)) {
-		applog(LOG_ERR, "JSON key '%s' is not a string", key);
+
+	hexstr = json_string_value( tmp );
+	if ( unlikely( ! hexstr ) )
+	{
+		applog( LOG_ERR, "JSON key '%s' is not a string", key );
 		return false;
 	}
-	if (!hex2bin(buf, hexstr, buflen))
+
+	if ( ! hex2bin( buf, hexstr, buflen ) )
+	{
 		return false;
+	}
 
 	return true;
 }
 
-static bool work_decode(const json_t *val, struct work *work)
+static bool work_decode( const json_t * val, struct work * work )
 {
 	int i;
 
-	if (unlikely(!jobj_binary(val, "data", work->data, sizeof(work->data)))) {
-		applog(LOG_ERR, "JSON invalid data");
+	if ( unlikely( ! jobj_binary( val, "data", work->data, sizeof( work->data ) ) ) )
+	{
+		applog( LOG_ERR, "JSON invalid data" );
 		goto err_out;
 	}
-	if (unlikely(!jobj_binary(val, "target", work->target, sizeof(work->target)))) {
-		applog(LOG_ERR, "JSON invalid target");
+	if ( unlikely( ! jobj_binary( val, "target", work->target, sizeof( work->target ) ) ) )
+	{
+		applog( LOG_ERR, "JSON invalid target" );
 		goto err_out;
 	}
 
-	for (i = 0; i < ARRAY_SIZE(work->data); i++)
-		work->data[i] = le32dec(work->data + i);
-	for (i = 0; i < ARRAY_SIZE(work->target); i++)
-		work->target[i] = le32dec(work->target + i);
+	for ( i = 0; i < ARRAY_SIZE( work->data ); i++ )
+	{
+		work->data[ i ] = le32dec( work->data + i );
+	}
+	for ( i = 0; i < ARRAY_SIZE( work->target ); i++ )
+	{
+		work->target[ i ] = le32dec( work->target + i );
+	}
 
 	return true;
 
@@ -347,386 +382,500 @@ err_out:
 	return false;
 }
 
-static bool gbt_work_decode(const json_t *val, struct work *work)
+static bool gbt_work_decode( const json_t * val, struct work * work )
 {
 	int i, n;
 	uint32_t version, curtime, bits;
 	uint32_t prevhash[8];
 	uint32_t target[8];
 	int cbtx_size;
-	unsigned char *cbtx = NULL;
+	unsigned char * cbtx = NULL;
 	int tx_count, tx_size;
 	unsigned char txc_vi[9];
-	unsigned char (*merkle_tree)[32] = NULL;
+	unsigned char ( * merkle_tree )[ 32 ] = NULL;
 	bool coinbase_append = false;
 	bool submit_coinbase = false;
 	bool segwit = false;
-	json_t *tmp, *txa;
+	json_t * tmp, * txa;
 	bool rc = false;
 
-	tmp = json_object_get(val, "rules");
-	if (tmp && json_is_array(tmp)) {
-		n = json_array_size(tmp);
-		for (i = 0; i < n; i++) {
-			const char *s = json_string_value(json_array_get(tmp, i));
-			if (!s)
+	//	...
+	tmp = json_object_get( val, "rules" );
+	if ( tmp && json_is_array( tmp ) )
+	{
+		n = json_array_size( tmp );
+		for ( i = 0; i < n; i++ )
+		{
+			const char * s = json_string_value( json_array_get( tmp, i ) );
+			if ( ! s )
+			{
 				continue;
-			if (!strcmp(s, "segwit") || !strcmp(s, "!segwit"))
+			}
+			if ( ! strcmp( s, "segwit" ) || ! strcmp( s, "!segwit" ) )
+			{
 				segwit = true;
+			}
 		}
 	}
 
-	tmp = json_object_get(val, "mutable");
-	if (tmp && json_is_array(tmp)) {
-		n = json_array_size(tmp);
-		for (i = 0; i < n; i++) {
-			const char *s = json_string_value(json_array_get(tmp, i));
-			if (!s)
+	tmp = json_object_get( val, "mutable" );
+	if ( tmp && json_is_array( tmp ) )
+	{
+		n = json_array_size( tmp );
+		for ( i = 0; i < n; i++ )
+		{
+			const char * s = json_string_value( json_array_get( tmp, i ) );
+			if ( ! s )
+			{
 				continue;
-			if (!strcmp(s, "coinbase/append"))
+			}
+			if ( ! strcmp( s, "coinbase/append" ) )
+			{
 				coinbase_append = true;
-			else if (!strcmp(s, "submit/coinbase"))
+			}
+			else if ( ! strcmp( s, "submit/coinbase" ) )
+			{
 				submit_coinbase = true;
+			}
 		}
 	}
 
-	tmp = json_object_get(val, "height");
-	if (!tmp || !json_is_integer(tmp)) {
-		applog(LOG_ERR, "JSON invalid height");
+	//	...
+	tmp = json_object_get( val, "height" );
+	if ( ! tmp || ! json_is_integer( tmp ) )
+	{
+		applog( LOG_ERR, "JSON invalid height" );
 		goto out;
 	}
-	work->height = json_integer_value(tmp);
+	work->height = json_integer_value( tmp );
 
-	tmp = json_object_get(val, "version");
-	if (!tmp || !json_is_integer(tmp)) {
-		applog(LOG_ERR, "JSON invalid version");
+	tmp = json_object_get( val, "version" );
+	if ( ! tmp || ! json_is_integer( tmp ) )
+	{
+		applog( LOG_ERR, "JSON invalid version" );
 		goto out;
 	}
-	version = json_integer_value(tmp);
+	version = json_integer_value( tmp );
 
-	if (unlikely(!jobj_binary(val, "previousblockhash", prevhash, sizeof(prevhash)))) {
-		applog(LOG_ERR, "JSON invalid previousblockhash");
-		goto out;
-	}
-
-	tmp = json_object_get(val, "curtime");
-	if (!tmp || !json_is_integer(tmp)) {
-		applog(LOG_ERR, "JSON invalid curtime");
-		goto out;
-	}
-	curtime = json_integer_value(tmp);
-
-	if (unlikely(!jobj_binary(val, "bits", &bits, sizeof(bits)))) {
-		applog(LOG_ERR, "JSON invalid bits");
+	if ( unlikely( ! jobj_binary( val, "previousblockhash", prevhash, sizeof( prevhash ) ) ) )
+	{
+		applog( LOG_ERR, "JSON invalid previousblockhash" );
 		goto out;
 	}
 
-	/* find count and size of transactions */
-	txa = json_object_get(val, "transactions");
-	if (!txa || !json_is_array(txa)) {
-		applog(LOG_ERR, "JSON invalid transactions");
+	tmp = json_object_get( val, "curtime" );
+	if ( ! tmp || ! json_is_integer( tmp ) )
+	{
+		applog( LOG_ERR, "JSON invalid curtime" );
 		goto out;
 	}
-	tx_count = json_array_size(txa);
-	tx_size = 0;
-	for (i = 0; i < tx_count; i++) {
-		const json_t *tx = json_array_get(txa, i);
-		const char *tx_hex = json_string_value(json_object_get(tx, "data"));
-		if (!tx_hex) {
-			applog(LOG_ERR, "JSON invalid transactions");
+	curtime = json_integer_value( tmp );
+
+	if ( unlikely( ! jobj_binary( val, "bits", &bits, sizeof( bits ) ) ) )
+	{
+		applog( LOG_ERR, "JSON invalid bits" );
+		goto out;
+	}
+
+	//	find count and size of transactions
+	txa = json_object_get( val, "transactions" );
+	if ( ! txa || ! json_is_array( txa ) )
+	{
+		applog( LOG_ERR, "JSON invalid transactions" );
+		goto out;
+	}
+	tx_count	= json_array_size( txa );
+	tx_size		= 0;
+	for ( i = 0; i < tx_count; i++ )
+	{
+		const json_t * tx	= json_array_get( txa, i );
+		const char *tx_hex	= json_string_value( json_object_get( tx, "data" ) );
+		if ( ! tx_hex )
+		{
+			applog( LOG_ERR, "JSON invalid transactions" );
 			goto out;
 		}
 		tx_size += strlen(tx_hex) / 2;
 	}
 
-	/* build coinbase transaction */
-	tmp = json_object_get(val, "coinbasetxn");
-	if (tmp) {
-		const char *cbtx_hex = json_string_value(json_object_get(tmp, "data"));
-		cbtx_size = cbtx_hex ? strlen(cbtx_hex) / 2 : 0;
-		cbtx = malloc(cbtx_size + 100);
-		if (cbtx_size < 60 || !hex2bin(cbtx, cbtx_hex, cbtx_size)) {
-			applog(LOG_ERR, "JSON invalid coinbasetxn");
+	//	build coinbase transaction
+	tmp = json_object_get( val, "coinbasetxn" );
+	if ( tmp )
+	{
+		const char * cbtx_hex	= json_string_value( json_object_get( tmp, "data" ) );
+		cbtx_size	= cbtx_hex ? strlen(cbtx_hex) / 2 : 0;
+		cbtx		= malloc( cbtx_size + 100 );
+		if ( cbtx_size < 60 || ! hex2bin( cbtx, cbtx_hex, cbtx_size ) )
+		{
+			applog( LOG_ERR, "JSON invalid coinbasetxn" );
 			goto out;
 		}
-	} else {
+	}
+	else
+	{
 		int64_t cbvalue;
-		if (!pk_script_size) {
-			if (allow_getwork) {
-				applog(LOG_INFO, "No payout address provided, switching to getwork");
+		if ( ! pk_script_size )
+		{
+			if ( allow_getwork )
+			{
+				applog( LOG_INFO, "No payout address provided, switching to getwork" );
 				have_gbt = false;
-			} else
-				applog(LOG_ERR, "No payout address provided");
+			}
+			else
+			{
+				applog( LOG_ERR, "No payout address provided" );
+			}
 			goto out;
 		}
-		tmp = json_object_get(val, "coinbasevalue");
-		if (!tmp || !json_is_number(tmp)) {
-			applog(LOG_ERR, "JSON invalid coinbasevalue");
+
+		tmp	= json_object_get( val, "coinbasevalue" );
+		if ( ! tmp || ! json_is_number( tmp ) )
+		{
+			applog( LOG_ERR, "JSON invalid coinbasevalue" );
 			goto out;
 		}
-		cbvalue = json_is_integer(tmp) ? json_integer_value(tmp) : json_number_value(tmp);
-		cbtx = malloc(256);
-		le32enc((uint32_t *)cbtx, 1); /* version */
-		cbtx[4] = 1; /* in-counter */
-		memset(cbtx+5, 0x00, 32); /* prev txout hash */
-		le32enc((uint32_t *)(cbtx+37), 0xffffffff); /* prev txout index */
-		cbtx_size = 43;
+
+		//	...
+		cbvalue		= json_is_integer( tmp ) ? json_integer_value( tmp ) : json_number_value( tmp );
+		cbtx		= malloc( 256 );
+		le32enc( ( uint32_t * )cbtx, 1 );			/* version */
+		cbtx[ 4 ]	= 1;					/* in-counter */
+		memset( cbtx + 5, 0x00, 32 );				/* prev txout hash */
+		le32enc( (uint32_t *)( cbtx + 37 ), 0xffffffff );	/* prev txout index */
+		cbtx_size	= 43;
+
 		/* BIP 34: height in coinbase */
-		for (n = work->height; n; n >>= 8) {
-			cbtx[cbtx_size++] = n & 0xff;
-			if (n < 0x100 && n >= 0x80)
-				cbtx[cbtx_size++] = 0;
+		for ( n = work->height; n; n >>= 8 )
+		{
+			cbtx[ cbtx_size++ ] = n & 0xff;
+			if ( n < 0x100 && n >= 0x80 )
+			{
+				cbtx[ cbtx_size++ ] = 0;
+			}
 		}
-		cbtx[42] = cbtx_size - 43;
-		cbtx[41] = cbtx_size - 42; /* scriptsig length */
-		le32enc((uint32_t *)(cbtx+cbtx_size), 0xffffffff); /* sequence */
-		cbtx_size += 4;
-		cbtx[cbtx_size++] = segwit ? 2 : 1; /* out-counter */
-		le32enc((uint32_t *)(cbtx+cbtx_size), (uint32_t)cbvalue); /* value */
-		le32enc((uint32_t *)(cbtx+cbtx_size+4), cbvalue >> 32);
-		cbtx_size += 8;
-		cbtx[cbtx_size++] = pk_script_size; /* txout-script length */
-		memcpy(cbtx+cbtx_size, pk_script, pk_script_size);
-		cbtx_size += pk_script_size;
-		if (segwit) {
-			unsigned char (*wtree)[32] = calloc(tx_count + 2, 32);
-			memset(cbtx+cbtx_size, 0, 8); /* value */
-			cbtx_size += 8;
-			cbtx[cbtx_size++] = 38; /* txout-script length */
-			cbtx[cbtx_size++] = 0x6a; /* txout-script */
-			cbtx[cbtx_size++] = 0x24;
-			cbtx[cbtx_size++] = 0xaa;
-			cbtx[cbtx_size++] = 0x21;
-			cbtx[cbtx_size++] = 0xa9;
-			cbtx[cbtx_size++] = 0xed;
-			for (i = 0; i < tx_count; i++) {
-				const json_t *tx = json_array_get(txa, i);
-				const json_t *hash = json_object_get(tx, "hash");
-				if (!hash || !hex2bin(wtree[1+i], json_string_value(hash), 32)) {
-					applog(LOG_ERR, "JSON invalid transaction hash");
-					free(wtree);
+
+		cbtx[ 42 ]	= cbtx_size - 43;
+		cbtx[ 41 ]	= cbtx_size - 42;				/* scriptsig length */
+		le32enc( (uint32_t *)( cbtx + cbtx_size ), 0xffffffff );	/* sequence */
+		cbtx_size		+= 4;
+		cbtx[ cbtx_size++ ]	= segwit ? 2 : 1;			/* out-counter */
+		le32enc( (uint32_t *)( cbtx + cbtx_size ), (uint32_t)cbvalue );	/* value */
+		le32enc( (uint32_t *)( cbtx + cbtx_size + 4 ), cbvalue >> 32 );
+		cbtx_size		+= 8;
+		cbtx[ cbtx_size++ ]	= pk_script_size;	/* txout-script length */
+		memcpy( cbtx+cbtx_size, pk_script, pk_script_size );
+		cbtx_size		+= pk_script_size;
+		if ( segwit )
+		{
+			unsigned char (*wtree)[ 32 ]	= calloc( tx_count + 2, 32 );
+			memset( cbtx + cbtx_size, 0, 8 );	/* value */
+			cbtx_size		+= 8;
+			cbtx[ cbtx_size++ ]	= 38;		/* txout-script length */
+			cbtx[ cbtx_size++ ]	= 0x6a;		/* txout-script */
+			cbtx[ cbtx_size++ ]	= 0x24;
+			cbtx[ cbtx_size++ ]	= 0xaa;
+			cbtx[ cbtx_size++ ]	= 0x21;
+			cbtx[ cbtx_size++ ]	= 0xa9;
+			cbtx[ cbtx_size++ ]	= 0xed;
+
+			for ( i = 0; i < tx_count; i++ )
+			{
+				const json_t * tx	= json_array_get( txa, i );
+				const json_t * hash	= json_object_get( tx, "hash" );
+				if ( ! hash || ! hex2bin( wtree[ 1 + i ], json_string_value( hash ), 32 ) )
+				{
+					applog( LOG_ERR, "JSON invalid transaction hash" );
+					free( wtree );
 					goto out;
 				}
-				memrev(wtree[1+i], 32);
+				memrev( wtree[ 1 + i ], 32 );
 			}
-			n = tx_count + 1;
-			while (n > 1) {
-				if (n % 2)
-					memcpy(wtree[n], wtree[n-1], 32);
-				n = (n + 1) / 2;
-				for (i = 0; i < n; i++)
-					sha256d(wtree[i], wtree[2*i], 64);
+
+			n	= tx_count + 1;
+			while ( n > 1 )
+			{
+				if ( n % 2 )
+				{
+					memcpy( wtree[ n ], wtree[ n - 1 ], 32 );
+				}
+				n	= ( n + 1 ) / 2;
+				for ( i = 0; i < n; i++ )
+				{
+					sha256d( wtree[ i ], wtree[ 2 * i ], 64 );
+				}
 			}
-			memset(wtree[1], 0, 32);  /* witness reserved value = 0 */
-			sha256d(cbtx+cbtx_size, wtree[0], 64);
-			cbtx_size += 32;
-			free(wtree);
+
+			memset( wtree[ 1 ], 0, 32 );	/* witness reserved value = 0 */
+			sha256d( cbtx + cbtx_size, wtree[ 0 ], 64 );
+			cbtx_size	+= 32;
+			free( wtree );
 		}
-		le32enc((uint32_t *)(cbtx+cbtx_size), 0); /* lock time */
-		cbtx_size += 4;
-		coinbase_append = true;
+
+		le32enc( ( uint32_t * )( cbtx + cbtx_size ), 0 );	/* lock time */
+		cbtx_size	+= 4;
+		coinbase_append	= true;
 	}
-	if (coinbase_append) {
-		unsigned char xsig[100];
+
+	if ( coinbase_append )
+	{
+		unsigned char xsig[ 100 ];
 		int xsig_len = 0;
-		if (*coinbase_sig) {
-			n = strlen(coinbase_sig);
-			if (cbtx[41] + xsig_len + n <= 100) {
-				memcpy(xsig+xsig_len, coinbase_sig, n);
+		if ( *coinbase_sig )
+		{
+			n	= strlen( coinbase_sig );
+			if ( cbtx[ 41 ] + xsig_len + n <= 100 )
+			{
+				memcpy( xsig + xsig_len, coinbase_sig, n );
 				xsig_len += n;
-			} else {
-				applog(LOG_WARNING, "Signature does not fit in coinbase, skipping");
+			}
+			else
+			{
+				applog( LOG_WARNING, "Signature does not fit in coinbase, skipping" );
 			}
 		}
-		tmp = json_object_get(val, "coinbaseaux");
-		if (tmp && json_is_object(tmp)) {
-			void *iter = json_object_iter(tmp);
-			while (iter) {
-				unsigned char buf[100];
-				const char *s = json_string_value(json_object_iter_value(iter));
+		tmp = json_object_get( val, "coinbaseaux" );
+		if ( tmp && json_is_object( tmp ) )
+		{
+			void * iter = json_object_iter( tmp );
+			while ( iter )
+			{
+				unsigned char buf[ 100 ];
+				const char * s	= json_string_value( json_object_iter_value( iter ) );
 				n = s ? strlen(s) / 2 : 0;
-				if (!s || n > 100 || !hex2bin(buf, s, n)) {
-					applog(LOG_ERR, "JSON invalid coinbaseaux");
+				if ( ! s || n > 100 || ! hex2bin( buf, s, n ) )
+				{
+					applog( LOG_ERR, "JSON invalid coinbaseaux" );
 					break;
 				}
-				if (cbtx[41] + xsig_len + n <= 100) {
-					memcpy(xsig+xsig_len, buf, n);
+				if ( cbtx[ 41 ] + xsig_len + n <= 100 )
+				{
+					memcpy( xsig + xsig_len, buf, n );
 					xsig_len += n;
 				}
-				iter = json_object_iter_next(tmp, iter);
+				iter = json_object_iter_next( tmp, iter );
 			}
 		}
-		if (xsig_len) {
-			unsigned char *ssig_end = cbtx + 42 + cbtx[41];
-			int push_len = cbtx[41] + xsig_len < 76 ? 1 :
-			               cbtx[41] + 2 + xsig_len > 100 ? 0 : 2;
+
+		if ( xsig_len )
+		{
+			unsigned char * ssig_end	= cbtx + 42 + cbtx[ 41 ];
+			int push_len	= cbtx[ 41 ] + xsig_len < 76 ?
+						1 :
+						cbtx[ 41 ] + 2 + xsig_len > 100 ?
+							0 : 2;
 			n = xsig_len + push_len;
-			memmove(ssig_end + n, ssig_end, cbtx_size - 42 - cbtx[41]);
-			cbtx[41] += n;
-			if (push_len == 2)
-				*(ssig_end++) = 0x4c; /* OP_PUSHDATA1 */
-			if (push_len)
-				*(ssig_end++) = xsig_len;
-			memcpy(ssig_end, xsig, xsig_len);
+			memmove( ssig_end + n, ssig_end, cbtx_size - 42 - cbtx[ 41 ] );
+			cbtx[ 41 ] += n;
+			if ( push_len == 2 )
+			{
+				*( ssig_end++ )	= 0x4c;	/* OP_PUSHDATA1 */
+			}
+			if ( push_len )
+			{
+				*( ssig_end++ )	= xsig_len;
+			}
+			memcpy( ssig_end, xsig, xsig_len );
 			cbtx_size += n;
 		}
 	}
 
-	n = varint_encode(txc_vi, 1 + tx_count);
-	work->txs = malloc(2 * (n + cbtx_size + tx_size) + 1);
-	bin2hex(work->txs, txc_vi, n);
-	bin2hex(work->txs + 2*n, cbtx, cbtx_size);
+	//	...
+	n		= varint_encode( txc_vi, 1 + tx_count );
+	work->txs	= malloc( 2 * ( n + cbtx_size + tx_size ) + 1 );
+	bin2hex( work->txs, txc_vi, n );
+	bin2hex( work->txs + 2 * n, cbtx, cbtx_size );
 
 	/* generate merkle root */
-	merkle_tree = malloc(32 * ((1 + tx_count + 1) & ~1));
-	sha256d(merkle_tree[0], cbtx, cbtx_size);
-	for (i = 0; i < tx_count; i++) {
-		tmp = json_array_get(txa, i);
-		const char *tx_hex = json_string_value(json_object_get(tmp, "data"));
-		const int tx_size = tx_hex ? strlen(tx_hex) / 2 : 0;
-		if (segwit) {
-			const char *txid = json_string_value(json_object_get(tmp, "txid"));
-			if (!txid || !hex2bin(merkle_tree[1 + i], txid, 32)) {
-				applog(LOG_ERR, "JSON invalid transaction txid");
+	merkle_tree	= malloc( 32 * ( ( 1 + tx_count + 1 ) & ~1 ) );
+	sha256d( merkle_tree[ 0 ], cbtx, cbtx_size );
+
+	for ( i = 0; i < tx_count; i++ )
+	{
+		tmp	= json_array_get( txa, i );
+		const char * tx_hex	= json_string_value( json_object_get( tmp, "data" ) );
+		const int tx_size	= tx_hex ? strlen( tx_hex ) / 2 : 0;
+		if ( segwit )
+		{
+			const char * txid	= json_string_value( json_object_get( tmp, "txid" ) );
+			if ( ! txid || ! hex2bin( merkle_tree[ 1 + i ], txid, 32 ) )
+			{
+				applog( LOG_ERR, "JSON invalid transaction txid" );
 				goto out;
 			}
-			memrev(merkle_tree[1 + i], 32);
-		} else {
-			unsigned char *tx = malloc(tx_size);
-			if (!tx_hex || !hex2bin(tx, tx_hex, tx_size)) {
-				applog(LOG_ERR, "JSON invalid transactions");
-				free(tx);
-				goto out;
-			}
-			sha256d(merkle_tree[1 + i], tx, tx_size);
-			free(tx);
+			memrev( merkle_tree[ 1 + i ], 32 );
 		}
-		if (!submit_coinbase)
-			strcat(work->txs, tx_hex);
+		else
+		{
+			unsigned char * tx	= malloc( tx_size );
+			if ( ! tx_hex || ! hex2bin( tx, tx_hex, tx_size ) )
+			{
+				applog( LOG_ERR, "JSON invalid transactions" );
+				free( tx );
+				goto out;
+			}
+			sha256d( merkle_tree[ 1 + i ], tx, tx_size );
+			free( tx );
+		}
+		if ( ! submit_coinbase )
+		{
+			strcat( work->txs, tx_hex );
+		}
 	}
-	n = 1 + tx_count;
-	while (n > 1) {
-		if (n % 2) {
-			memcpy(merkle_tree[n], merkle_tree[n-1], 32);
+
+	//	...
+	n	= 1 + tx_count;
+	while ( n > 1 )
+	{
+		if ( n % 2 )
+		{
+			memcpy( merkle_tree[ n ], merkle_tree[ n - 1 ], 32 );
 			++n;
 		}
 		n /= 2;
-		for (i = 0; i < n; i++)
-			sha256d(merkle_tree[i], merkle_tree[2*i], 64);
+		for ( i = 0; i < n; i ++ )
+		{
+			sha256d( merkle_tree[ i ], merkle_tree[ 2 * i ], 64 );
+		}
 	}
 
 	/* assemble block header */
-	work->data[0] = swab32(version);
-	for (i = 0; i < 8; i++)
-		work->data[8 - i] = le32dec(prevhash + i);
-	for (i = 0; i < 8; i++)
-		work->data[9 + i] = be32dec((uint32_t *)merkle_tree[0] + i);
-	work->data[17] = swab32(curtime);
-	work->data[18] = le32dec(&bits);
-	memset(work->data + 19, 0x00, 52);
-	work->data[20] = 0x80000000;
-	work->data[31] = 0x00000280;
+	work->data[ 0 ]	= swab32( version );
+	for ( i = 0; i < 8; i++ )
+	{
+		work->data[ 8 - i ]	= le32dec( prevhash + i );
+	}
+	for ( i = 0; i < 8; i++ )
+	{
+		work->data[ 9 + i ]	= be32dec( ( uint32_t * )merkle_tree[ 0 ] + i );
+	}
 
-	if (unlikely(!jobj_binary(val, "target", target, sizeof(target)))) {
-		applog(LOG_ERR, "JSON invalid target");
+	work->data[ 17 ]	= swab32( curtime );
+	work->data[ 18 ]	= le32dec( &bits );
+	memset( work->data + 19, 0x00, 52 );
+	work->data[ 20 ]	= 0x80000000;
+	work->data[ 31 ]	= 0x00000280;
+
+	if ( unlikely( ! jobj_binary( val, "target", target, sizeof( target ) ) ) )
+	{
+		applog( LOG_ERR, "JSON invalid target" );
 		goto out;
 	}
-	for (i = 0; i < ARRAY_SIZE(work->target); i++)
-		work->target[7 - i] = be32dec(target + i);
+	for ( i = 0; i < ARRAY_SIZE( work->target ); i++ )
+	{
+		work->target[ 7 - i ]	= be32dec( target + i );
+	}
 
-	tmp = json_object_get(val, "workid");
-	if (tmp) {
-		if (!json_is_string(tmp)) {
-			applog(LOG_ERR, "JSON invalid workid");
+	tmp	= json_object_get( val, "workid" );
+	if ( tmp )
+	{
+		if ( ! json_is_string( tmp ) )
+		{
+			applog( LOG_ERR, "JSON invalid workid" );
 			goto out;
 		}
-		work->workid = strdup(json_string_value(tmp));
+		work->workid	= strdup( json_string_value( tmp ) );
 	}
 
 	/* Long polling */
-	tmp = json_object_get(val, "longpollid");
-	if (want_longpoll && json_is_string(tmp)) {
-		free(lp_id);
-		lp_id = strdup(json_string_value(tmp));
-		if (!have_longpoll) {
-			char *lp_uri;
-			tmp = json_object_get(val, "longpolluri");
-			lp_uri = strdup(json_is_string(tmp) ? json_string_value(tmp) : rpc_url);
-			have_longpoll = true;
-			tq_push(thr_info[longpoll_thr_id].q, lp_uri);
+	tmp	= json_object_get( val, "longpollid" );
+	if ( want_longpoll && json_is_string( tmp ) )
+	{
+		free( lp_id );
+		lp_id	= strdup( json_string_value( tmp ) );
+		if ( ! have_longpoll )
+		{
+			char * lp_uri;
+			tmp	= json_object_get( val, "longpolluri" );
+			lp_uri	= strdup( json_is_string( tmp ) ? json_string_value( tmp ) : rpc_url );
+			have_longpoll	= true;
+			tq_push( thr_info[ longpoll_thr_id ].q, lp_uri );
 		}
 	}
 
 	rc = true;
 
 out:
-	free(cbtx);
-	free(merkle_tree);
+	free( cbtx );
+	free( merkle_tree );
 	return rc;
 }
 
-static void share_result(int result, const char *reason)
+static void share_result( int result, const char * reason )
 {
-	char s[345];
+	char s[ 345 ];
 	double hashrate;
 	int i;
 
-	hashrate = 0.;
-	pthread_mutex_lock(&stats_lock);
-	for (i = 0; i < opt_n_threads; i++)
-		hashrate += thr_hashrates[i];
-	result ? accepted_count++ : rejected_count++;
-	pthread_mutex_unlock(&stats_lock);
-	
-	sprintf(s, hashrate >= 1e6 ? "%.0f" : "%.2f", 1e-3 * hashrate);
-	applog(LOG_INFO, "accepted: %lu/%lu (%.2f%%), %s khash/s %s",
+	hashrate	= 0.;
+	pthread_mutex_lock( &stats_lock );
+	for ( i = 0; i < opt_n_threads; i++ )
+	{
+		hashrate += thr_hashrates[ i ];
+	}
+
+	//	...
+	result ? accepted_count ++ : rejected_count ++;
+	pthread_mutex_unlock( &stats_lock );
+
+	//	...
+	sprintf( s, hashrate >= 1e6 ? "%.0f" : "%.2f", 1e-3 * hashrate );
+	applog( LOG_INFO, "accepted: %lu/%lu (%.2f%%), %s khash/s %s",
 		   accepted_count,
 		   accepted_count + rejected_count,
 		   100. * accepted_count / (accepted_count + rejected_count),
 		   s,
-		   result ? "(yay!!!)" : "(booooo)");
+		   result ? "(yay!!!)" : "(booooo)" );
 
-	if (opt_debug && reason)
-		applog(LOG_DEBUG, "DEBUG: reject reason: %s", reason);
+	if ( opt_debug && reason )
+	{
+		applog( LOG_DEBUG, "DEBUG: reject reason: %s", reason );
+	}
 }
 
-static bool submit_upstream_work(CURL *curl, struct work *work)
+static bool submit_upstream_work( CURL * curl, struct work * work )
 {
-	json_t *val, *res, *reason;
-	char data_str[2 * sizeof(work->data) + 1];
-	char s[345];
+	json_t * val, *res, *reason;
+	char data_str[ 2 * sizeof( work->data ) + 1 ];
+	char s[ 345 ];
 	int i;
 	bool rc = false;
 
 	/* pass if the previous hash is not the current previous hash */
-	if (!submit_old && memcmp(work->data + 1, g_work.data + 1, 32)) {
-		if (opt_debug)
-			applog(LOG_DEBUG, "DEBUG: stale work detected, discarding");
+	if ( ! submit_old && memcmp( work->data + 1, g_work.data + 1, 32 ) )
+	{
+		if ( opt_debug )
+		{
+			applog( LOG_DEBUG, "DEBUG: stale work detected, discarding" );
+		}
 		return true;
 	}
 
-	if (have_stratum) {
+	if ( have_stratum )
+	{
 		uint32_t ntime, nonce;
-		char ntimestr[9], noncestr[9], *xnonce2str, *req;
+		char ntimestr[ 9 ], noncestr[ 9 ], * xnonce2str, *req;
 
-		le32enc(&ntime, work->data[17]);
-		le32enc(&nonce, work->data[19]);
-		bin2hex(ntimestr, (const unsigned char *)(&ntime), 4);
-		bin2hex(noncestr, (const unsigned char *)(&nonce), 4);
-		xnonce2str = abin2hex(work->xnonce2, work->xnonce2_len);
-		req = malloc(256 + strlen(rpc_user) + strlen(work->job_id) + 2 * work->xnonce2_len);
-		sprintf(req,
+		le32enc( &ntime, work->data[ 17 ] );
+		le32enc( &nonce, work->data[ 19 ] );
+		bin2hex( ntimestr, (const unsigned char *)( &ntime ), 4 );
+		bin2hex( noncestr, (const unsigned char *)( &nonce ), 4 );
+		xnonce2str	= abin2hex( work->xnonce2, work->xnonce2_len );
+		req		= malloc( 256 + strlen( rpc_user ) + strlen( work->job_id ) + 2 * work->xnonce2_len );
+		sprintf( req,
 			"{\"method\": \"mining.submit\", \"params\": [\"%s\", \"%s\", \"%s\", \"%s\", \"%s\"], \"id\":4}",
-			rpc_user, work->job_id, xnonce2str, ntimestr, noncestr);
-		free(xnonce2str);
+			rpc_user, work->job_id, xnonce2str, ntimestr, noncestr );
+		free( xnonce2str );
 
-		rc = stratum_send_line(&stratum, req);
-		free(req);
-		if (unlikely(!rc)) {
-			applog(LOG_ERR, "submit_upstream_work stratum_send_line failed");
+		rc	= stratum_send_line( &stratum, req );
+		free( req );
+		if ( unlikely( ! rc ) )
+		{
+			applog( LOG_ERR, "submit_upstream_work stratum_send_line failed" );
 			goto out;
 		}
-	} else if (work->txs) {
+
+	} else if ( work->txs )
+	{
 		char *req;
 
 		for (i = 0; i < ARRAY_SIZE(work->data); i++)
@@ -1524,7 +1673,7 @@ static void show_version_and_exit(void)
 	exit(0);
 }
 
-static void show_usage_and_exit(int status)
+static void show_usage_and_exit( int status )
 {
 	if (status)
 		fprintf(stderr, "Try `" PROGRAM_NAME " --help' for more information.\n");
@@ -1533,7 +1682,7 @@ static void show_usage_and_exit(int status)
 	exit(status);
 }
 
-static void strhide(char *s)
+static void strhide( char * s )
 {
 	if (*s) *s++ = 'x';
 	while (*s) *s++ = '\0';
@@ -1541,239 +1690,326 @@ static void strhide(char *s)
 
 static void parse_config(json_t *config, char *pname, char *ref);
 
-static void parse_arg(int key, char *arg, char *pname)
+static void parse_arg( int key, char * arg, char * pname )
 {
-	char *p;
+	char * p;
 	int v, i;
 
-	switch(key) {
+	switch( key )
+	{
 	case 'a':
-		for (i = 0; i < ARRAY_SIZE(algo_names); i++) {
-			v = strlen(algo_names[i]);
-			if (!strncmp(arg, algo_names[i], v)) {
-				if (arg[v] == '\0') {
+		for ( i = 0; i < ARRAY_SIZE(algo_names); i++ )
+		{
+			v	= strlen( algo_names[ i ] );
+			if ( ! strncmp( arg, algo_names[ i ], v ) )
+			{
+				if ( arg[ v ] == '\0' )
+				{
 					opt_algo = i;
 					break;
 				}
-				if (arg[v] == ':' && i == ALGO_SCRYPT) {
-					char *ep;
-					v = strtol(arg+v+1, &ep, 10);
-					if (*ep || v & (v-1) || v < 2)
+				if ( arg[ v ] == ':' && i == ALGO_SCRYPT )
+				{
+					char * ep;
+					v = strtol( arg + v + 1, &ep, 10 );
+					if ( *ep || v & (v-1) || v < 2 )
+					{
 						continue;
-					opt_algo = i;
-					opt_scrypt_n = v;
+					}
+
+					opt_algo	= i;
+					opt_scrypt_n	= v;
 					break;
 				}
 			}
 		}
-		if (i == ARRAY_SIZE(algo_names)) {
-			fprintf(stderr, "%s: unknown algorithm -- '%s'\n",
-				pname, arg);
-			show_usage_and_exit(1);
+
+		if ( i == ARRAY_SIZE( algo_names ) )
+		{
+			fprintf( stderr, "%s: unknown algorithm -- '%s'\n", pname, arg );
+			show_usage_and_exit( 1 );
 		}
 		break;
+
 	case 'B':
 		opt_background = true;
 		break;
-	case 'c': {
+
+	case 'c':
+	{
 		json_error_t err;
-		json_t *config = JSON_LOAD_FILE(arg, &err);
-		if (!json_is_object(config)) {
-			if (err.line < 0)
-				fprintf(stderr, "%s: %s\n", pname, err.text);
+		json_t * config = JSON_LOAD_FILE( arg, &err );
+		if ( ! json_is_object( config ) )
+		{
+			if ( err.line < 0 )
+			{
+				fprintf( stderr, "%s: %s\n", pname, err.text );
+			}
 			else
-				fprintf(stderr, "%s: %s:%d: %s\n",
-					pname, arg, err.line, err.text);
-			exit(1);
+			{
+				fprintf( stderr, "%s: %s:%d: %s\n", pname, arg, err.line, err.text );
+			}
+			exit( 1 );
 		}
-		parse_config(config, pname, arg);
-		json_decref(config);
+		parse_config( config, pname, arg );
+		json_decref( config );
 		break;
 	}
+
 	case 'q':
 		opt_quiet = true;
 		break;
+
 	case 'D':
 		opt_debug = true;
 		break;
+
 	case 'p':
-		free(rpc_pass);
-		rpc_pass = strdup(arg);
-		strhide(arg);
+		free( rpc_pass );
+		rpc_pass = strdup( arg );
+		strhide( arg );
 		break;
+
 	case 'P':
 		opt_protocol = true;
 		break;
+
 	case 'r':
-		v = atoi(arg);
-		if (v < -1 || v > 9999)	/* sanity check */
-			show_usage_and_exit(1);
+		v = atoi( arg );
+		if ( v < -1 || v > 9999 )	/* sanity check */
+		{
+			show_usage_and_exit( 1 );
+		}
 		opt_retries = v;
 		break;
+
 	case 'R':
-		v = atoi(arg);
-		if (v < 1 || v > 9999)	/* sanity check */
-			show_usage_and_exit(1);
+		v = atoi( arg );
+		if ( v < 1 || v > 9999 )	/* sanity check */
+		{
+			show_usage_and_exit( 1 );
+		}
 		opt_fail_pause = v;
 		break;
+
 	case 's':
-		v = atoi(arg);
-		if (v < 1 || v > 9999)	/* sanity check */
-			show_usage_and_exit(1);
+		v = atoi( arg );
+		if ( v < 1 || v > 9999 )	/* sanity check */
+		{
+			show_usage_and_exit( 1 );
+		}
 		opt_scantime = v;
 		break;
+
 	case 'T':
-		v = atoi(arg);
-		if (v < 1 || v > 99999)	/* sanity check */
-			show_usage_and_exit(1);
+		v = atoi( arg );
+		if ( v < 1 || v > 99999 )	/* sanity check */
+		{
+			show_usage_and_exit( 1 );
+		}
 		opt_timeout = v;
 		break;
+
 	case 't':
-		v = atoi(arg);
-		if (v < 1 || v > 9999)	/* sanity check */
-			show_usage_and_exit(1);
+		v = atoi( arg );
+		if ( v < 1 || v > 9999 )	/* sanity check */
+		{
+			show_usage_and_exit( 1 );
+		}
 		opt_n_threads = v;
 		break;
+
 	case 'u':
-		free(rpc_user);
-		rpc_user = strdup(arg);
+		free( rpc_user );
+		rpc_user = strdup( arg );
 		break;
-	case 'o': {			/* --url */
-		char *ap, *hp;
-		ap = strstr(arg, "://");
-		ap = ap ? ap + 3 : arg;
-		hp = strrchr(arg, '@');
-		if (hp) {
-			*hp = '\0';
-			p = strchr(ap, ':');
-			if (p) {
-				free(rpc_userpass);
-				rpc_userpass = strdup(ap);
-				free(rpc_user);
-				rpc_user = calloc(p - ap + 1, 1);
-				strncpy(rpc_user, ap, p - ap);
-				free(rpc_pass);
-				rpc_pass = strdup(++p);
-				if (*p) *p++ = 'x';
-				v = strlen(hp + 1) + 1;
-				memmove(p + 1, hp + 1, v);
-				memset(p + v, 0, hp - p);
+
+	case 'o':
+	{
+		/* --url */
+		char * ap, * hp;
+		ap	= strstr( arg, "://" );
+		ap	= ap ? ap + 3 : arg;
+		hp	= strrchr( arg, '@' );
+		if ( hp )
+		{
+			*hp	= '\0';
+			p	= strchr( ap, ':' );
+			if ( p )
+			{
+				free( rpc_userpass );
+				rpc_userpass	= strdup( ap );
+
+				free( rpc_user );
+				rpc_user	= calloc( p - ap + 1, 1 );
+				strncpy( rpc_user, ap, p - ap );
+
+				free( rpc_pass );
+				rpc_pass	= strdup( ++p );
+				if ( *p )
+				{
+					*p++ = 'x';
+				}
+				v	= strlen( hp + 1 ) + 1;
+				memmove( p + 1, hp + 1, v );
+				memset( p + v, 0, hp - p );
 				hp = p;
-			} else {
-				free(rpc_user);
-				rpc_user = strdup(ap);
+			}
+			else
+			{
+				free( rpc_user );
+				rpc_user = strdup( ap );
 			}
 			*hp++ = '@';
-		} else
-			hp = ap;
-		if (ap != arg) {
-			if (strncasecmp(arg, "http://", 7) &&
-			    strncasecmp(arg, "https://", 8) &&
-			    strncasecmp(arg, "stratum+tcp://", 14) &&
-			    strncasecmp(arg, "stratum+tcps://", 15)) {
-				fprintf(stderr, "%s: unknown protocol -- '%s'\n",
-					pname, arg);
-				show_usage_and_exit(1);
-			}
-			free(rpc_url);
-			rpc_url = strdup(arg);
-			strcpy(rpc_url + (ap - arg), hp);
-		} else {
-			if (*hp == '\0' || *hp == '/') {
-				fprintf(stderr, "%s: invalid URL -- '%s'\n",
-					pname, arg);
-				show_usage_and_exit(1);
-			}
-			free(rpc_url);
-			rpc_url = malloc(strlen(hp) + 8);
-			sprintf(rpc_url, "http://%s", hp);
 		}
-		have_stratum = !opt_benchmark && !strncasecmp(rpc_url, "stratum", 7);
+		else
+		{
+			hp = ap;
+		}
+
+		if ( ap != arg )
+		{
+			if ( strncasecmp( arg, "http://", 7 ) &&
+				strncasecmp( arg, "https://", 8 ) &&
+				strncasecmp( arg, "stratum+tcp://", 14 ) &&
+				strncasecmp( arg, "stratum+tcps://", 15 ) )
+			{
+				fprintf( stderr, "%s: unknown protocol -- '%s'\n", pname, arg );
+				show_usage_and_exit( 1 );
+			}
+			free( rpc_url );
+			rpc_url	= strdup( arg );
+			strcpy( rpc_url + ( ap - arg ), hp );
+		}
+		else
+		{
+			if ( *hp == '\0' || *hp == '/' )
+			{
+				fprintf( stderr, "%s: invalid URL -- '%s'\n", pname, arg );
+				show_usage_and_exit( 1 );
+			}
+			free( rpc_url );
+			rpc_url	= malloc( strlen( hp ) + 8 );
+			sprintf( rpc_url, "http://%s", hp );
+		}
+		have_stratum = ! opt_benchmark && ! strncasecmp( rpc_url, "stratum", 7 );
 		break;
 	}
-	case 'O':			/* --userpass */
-		p = strchr(arg, ':');
-		if (!p) {
-			fprintf(stderr, "%s: invalid username:password pair -- '%s'\n",
-				pname, arg);
-			show_usage_and_exit(1);
+
+	case 'O':
+		/* --userpass */
+		p = strchr( arg, ':' );
+		if ( !p )
+		{
+			fprintf( stderr, "%s: invalid username:password pair -- '%s'\n", pname, arg );
+			show_usage_and_exit( 1 );
 		}
-		free(rpc_userpass);
-		rpc_userpass = strdup(arg);
-		free(rpc_user);
-		rpc_user = calloc(p - arg + 1, 1);
-		strncpy(rpc_user, arg, p - arg);
-		free(rpc_pass);
-		rpc_pass = strdup(++p);
-		strhide(p);
+		free( rpc_userpass );
+		rpc_userpass	= strdup( arg );
+		free( rpc_user );
+		rpc_user	= calloc( p - arg + 1, 1 );
+		strncpy( rpc_user, arg, p - arg );
+		free( rpc_pass );
+		rpc_pass	= strdup( ++p );
+		strhide( p );
 		break;
-	case 'x':			/* --proxy */
-		if (!strncasecmp(arg, "socks4://", 9))
+
+	case 'x':
+		/* --proxy */
+		if ( ! strncasecmp( arg, "socks4://", 9 ) )
+		{
 			opt_proxy_type = CURLPROXY_SOCKS4;
-		else if (!strncasecmp(arg, "socks5://", 9))
+		}
+		else if ( ! strncasecmp( arg, "socks5://", 9 ) )
+		{
 			opt_proxy_type = CURLPROXY_SOCKS5;
+		}
 #if LIBCURL_VERSION_NUM >= 0x071200
-		else if (!strncasecmp(arg, "socks4a://", 10))
+		else if ( ! strncasecmp( arg, "socks4a://", 10 ) )
+		{
 			opt_proxy_type = CURLPROXY_SOCKS4A;
-		else if (!strncasecmp(arg, "socks5h://", 10))
+		}
+		else if ( ! strncasecmp( arg, "socks5h://", 10 ) )
+		{
 			opt_proxy_type = CURLPROXY_SOCKS5_HOSTNAME;
+		}
 #endif
 		else
+		{
 			opt_proxy_type = CURLPROXY_HTTP;
-		free(opt_proxy);
-		opt_proxy = strdup(arg);
+		}
+
+		free( opt_proxy );
+		opt_proxy	= strdup( arg );
 		break;
+
 	case 1001:
-		free(opt_cert);
-		opt_cert = strdup(arg);
+		free( opt_cert );
+		opt_cert	= strdup( arg );
 		break;
+
 	case 1005:
-		opt_benchmark = true;
-		want_longpoll = false;
-		want_stratum = false;
-		have_stratum = false;
+		opt_benchmark	= true;
+		want_longpoll	= false;
+		want_stratum	= false;
+		have_stratum	= false;
 		break;
+
 	case 1003:
-		want_longpoll = false;
+		want_longpoll	= false;
 		break;
+
 	case 1007:
-		want_stratum = false;
+		want_stratum	= false;
 		break;
+
 	case 1009:
-		opt_redirect = false;
+		opt_redirect	= false;
 		break;
+
 	case 1010:
-		allow_getwork = false;
+		allow_getwork	= false;
 		break;
+
 	case 1011:
-		have_gbt = false;
+		have_gbt	= false;
 		break;
-	case 1013:			/* --coinbase-addr */
-		pk_script_size = address_to_script(pk_script, sizeof(pk_script), arg);
-		if (!pk_script_size) {
-			fprintf(stderr, "%s: invalid address -- '%s'\n",
-				pname, arg);
-			show_usage_and_exit(1);
+
+	case 1013:
+		/* --coinbase-addr */
+		pk_script_size	= address_to_script( pk_script, sizeof( pk_script ), arg );
+		if ( ! pk_script_size )
+		{
+			fprintf( stderr, "%s: invalid address -- '%s'\n", pname, arg );
+			show_usage_and_exit( 1 );
 		}
 		break;
-	case 1015:			/* --coinbase-sig */
-		if (strlen(arg) + 1 > sizeof(coinbase_sig)) {
-			fprintf(stderr, "%s: coinbase signature too long\n", pname);
-			show_usage_and_exit(1);
+
+	case 1015:
+		/* --coinbase-sig */
+		if ( strlen( arg ) + 1 > sizeof( coinbase_sig ) )
+		{
+			fprintf( stderr, "%s: coinbase signature too long\n", pname );
+			show_usage_and_exit( 1 );
 		}
-		strcpy(coinbase_sig, arg);
+		strcpy( coinbase_sig, arg );
 		break;
+
 	case 'S':
 		use_syslog = true;
 		break;
+
 	case 'V':
 		show_version_and_exit();
+
 	case 'h':
-		show_usage_and_exit(0);
+		show_usage_and_exit( 0 );
+
 	default:
-		show_usage_and_exit(1);
+		show_usage_and_exit( 1 );
 	}
 }
+
 
 static void parse_config(json_t *config, char *pname, char *ref)
 {
@@ -1810,27 +2046,32 @@ static void parse_config(json_t *config, char *pname, char *ref)
 	}
 }
 
-static void parse_cmdline(int argc, char *argv[])
+static void parse_cmdline( int argc, char * argv[] )
 {
 	int key;
 
-	while (1) {
+	while ( 1 )
+	{
 #if HAVE_GETOPT_LONG
-		key = getopt_long(argc, argv, short_options, options, NULL);
+		key = getopt_long( argc, argv, short_options, options, NULL );
 #else
-		key = getopt(argc, argv, short_options);
+		key = getopt( argc, argv, short_options );
 #endif
-		if (key < 0)
+		if ( key < 0 )
+		{
 			break;
+		}
 
-		parse_arg(key, optarg, argv[0]);
+		parse_arg( key, optarg, argv[ 0 ] );
 	}
-	if (optind < argc) {
-		fprintf(stderr, "%s: unsupported non-option argument -- '%s'\n",
-			argv[0], argv[optind]);
-		show_usage_and_exit(1);
+
+	if ( optind < argc )
+	{
+		fprintf( stderr, "%s: unsupported non-option argument -- '%s'\n", argv[ 0 ], argv[ optind ] );
+		show_usage_and_exit( 1 );
 	}
 }
+
 
 #ifndef WIN32
 static void signal_handler(int sig)
@@ -1865,7 +2106,7 @@ int main( int argc, char * argv[] )
 	long flags;
 	int i;
 
-	/* ... */
+	//	...
 	rpc_user	= strdup( "" );
 	rpc_pass	= strdup( "" );
 
@@ -1911,16 +2152,24 @@ int main( int argc, char * argv[] )
 	{
 		i = fork();
 		if ( i < 0 )
-			exit(1);
+		{
+			exit( 1 );
+		}
 		if ( i > 0 )
-			exit(0);
+		{
+			exit( 0 );
+		}
 
 		i = setsid();
 		if ( i < 0 )
+		{
 			applog( LOG_ERR, "setsid() failed (errno = %d)", errno );
+		}
 		i = chdir("/");
 		if ( i < 0 )
+		{
 			applog( LOG_ERR, "chdir() failed (errno = %d)", errno );
+		}
 
 		//	...
 		signal( SIGHUP, signal_handler );
@@ -1929,32 +2178,47 @@ int main( int argc, char * argv[] )
 	}
 #endif
 
-#if defined(WIN32)
+
+#if defined( WIN32 )
+
 	SYSTEM_INFO sysinfo;
-	GetSystemInfo(&sysinfo);
+	GetSystemInfo( &sysinfo );
 	num_processors = sysinfo.dwNumberOfProcessors;
-#elif defined(_SC_NPROCESSORS_CONF)
+
+#elif defined( _SC_NPROCESSORS_CONF )
+
 	num_processors = sysconf(_SC_NPROCESSORS_CONF);
-#elif defined(CTL_HW) && defined(HW_NCPU)
-	int req[] = { CTL_HW, HW_NCPU };
-	size_t len = sizeof(num_processors);
-	sysctl(req, 2, &num_processors, &len, NULL, 0);
+
+#elif defined( CTL_HW ) && defined( HW_NCPU )
+
+	int req[]	= { CTL_HW, HW_NCPU };
+	size_t len	= sizeof( num_processors );
+	sysctl( req, 2, &num_processors, &len, NULL, 0 );
+
 #else
 	num_processors = 1;
 #endif
-	if (num_processors < 1)
+
+	if ( num_processors < 1 )
+	{
 		num_processors = 1;
-	if (!opt_n_threads)
+	}
+	if ( ! opt_n_threads )
+	{
 		opt_n_threads = num_processors;
+	}
+
 
 #ifdef HAVE_SYSLOG_H
+
 	if ( use_syslog )
 	{
-		openlog("cpuminer", LOG_PID, LOG_USER);
+		openlog( "cpuminer", LOG_PID, LOG_USER );
 	}
+
 #endif
 
-	work_restart = calloc( opt_n_threads, sizeof( *work_restart ) );
+	work_restart	= calloc( opt_n_threads, sizeof( *work_restart ) );
 	if ( ! work_restart )
 	{
 		return 1;
